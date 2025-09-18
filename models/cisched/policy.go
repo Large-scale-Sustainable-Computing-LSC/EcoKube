@@ -1,5 +1,7 @@
 package cisched
 
+import "time"
+
 // Weights for the score terms (all inputs are normalised 0..1 before weighting).
 type Weights struct {
 	Carbon float64 // carbon-impact term
@@ -15,9 +17,10 @@ type RobustScalingCfg struct {
 	Eps    float64 // denom guard, e.g. 1e-9
 }
 
-// Policy holds the knobs for CI-Aware scheduling.
 type Policy struct {
-	W     Weights
+	W         Weights
+	AlphaMass float64       // adaptive carbon scaling by job mass (0=off)
+	Lookahead time.Duration // optional look-ahead window (0=off)
 	Scale RobustScalingCfg
 }
 

@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/csv"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"log"
@@ -15,153 +16,155 @@ import (
 	"kube-scheduler/models/cisched"
 	"kube-scheduler/models/k8sched"
 	"kube-scheduler/pkg/core"
-	"kube-scheduler/pkg/generator"
 	"kube-scheduler/pkg/loader"
 	"kube-scheduler/pkg/metrics"
 )
 
-// parseFloatSlice converts a comma-separated list of floats into a slice
-func parseFloatSlice(s string) []float64 {
-	parts := strings.Split(s, ",")
-	out := make([]float64, 0, len(parts))
-	for _, p := range parts {
-		v, err := strconv.ParseFloat(strings.TrimSpace(p), 64)
-		if err != nil {
-			log.Fatalf("invalid float in slice %q: %v", p, err)
-		}
-		out = append(out, v)
-	}
-	return out
-}
-
-// parseIntSlice converts a comma-separated list of ints into a slice
-func parseIntSlice(s string) []int {
-	parts := strings.Split(s, ",")
-	out := make([]int, 0, len(parts))
-	for _, p := range parts {
-		v, err := strconv.Atoi(strings.TrimSpace(p))
-		if err != nil {
-			log.Fatalf("invalid int in slice %q: %v", p, err)
-		}
-		out = append(out, v)
-	}
-	return out
-}
-
-// helper: parse seconds → []time.Duration
-func parseDurationSliceSeconds(s string) []time.Duration {
-    if strings.TrimSpace(s) == "" { return nil }
-    floats := parseFloatSlice(s)
-    out := make([]time.Duration, len(floats))
-    for i, v := range floats {
-        out[i] = time.Duration(v * float64(time.Second))
-    }
-    return out
+// cross-product: (policy × ci_weight × batch_size)
+type SummaryRow struct {
+	Policy            string  `json:"policy"`
+	CIWeight          float64 `json:"ci_weight"`
+	BatchSize         int     `json:"batch_size"`
+	TotalCICostG      float64 `json:"total_ci_cost_g"`
+	AvgCIPerJobG      float64 `json:"avg_ci_per_job_g"`
+	CFPgPerCPUHour    float64 `json:"cfp_g_per_cpu_hour"`
+	AvgWaitS          float64 `json:"avg_wait_s"`
+	MakespanS         float64 `json:"makespan_s"`
+	ElapsedMs         float64 `json:"elapsed_ms"`
+	NumJobs           int     `json:"num_jobs"`
+	AlphaMass         float64 `json:"alpha_mass"`
+	LookaheadMin      int     `json:"lookahead_min"`
+	DurationScale     float64 `json:"duration_scale"`
+	DurationOverrides string  `json:"duration_overrides"`
 }
 
 func main() {
-	var nodesCSV, wlCSV, ciWeightsFlag, batchSizesFlag string
-	var durScale float64
+	// ---- CLI flags ----
+	var nodesCSV, wlCSV, outDir string
+	var ciWeightsFlag, batchSizesFlag string
 	var durationsFlag string
+	var durScale float64
+	var alphaMass float64
+	var lookaheadMin int
 
-	flag.StringVar(&nodesCSV, "nodes-csv", "", "path to nodes CSV (auto-generate if empty)")
-	flag.StringVar(&wlCSV, "wl-csv", "", "path to workloads CSV (auto-generate if empty)")
-	flag.StringVar(&ciWeightsFlag, "ci-weights", "0.1,0.5,1.0,1.5", "comma-separated CI-base weights")
-	flag.StringVar(&batchSizesFlag, "batch-sizes", "50,100,200", "comma-separated batch sizes")
-
-	// NEW knobs
+	flag.StringVar(&nodesCSV, "nodes-csv", "config/nodes.csv", "path to nodes CSV")
+	flag.StringVar(&wlCSV, "wl-csv", "config/workloads.csv", "path to workloads CSV")
+	flag.StringVar(&outDir, "outdir", "results", "output directory for per-run CSVs and summary")
+	flag.StringVar(&ciWeightsFlag, "ci-weights", "0.05,0.2,0.8,1.2", "comma-separated base CI weights to sweep")
+	flag.StringVar(&batchSizesFlag, "batch-sizes", "32,128,256", "comma-separated batch sizes to sweep")
+	flag.StringVar(&durationsFlag, "durations", "", "override job durations (seconds) as comma-separated list; assigned round-robin")
 	flag.Float64Var(&durScale, "dur-scale", 1.0, "multiply all job durations by this factor")
-	flag.StringVar(&durationsFlag, "durations", "", "comma-separated job durations (seconds) to override, assigned round-robin")
-
+	flag.Float64Var(&alphaMass, "alpha-mass", 1.0, "adaptive carbon weight multiplier for big jobs (0=off)")
+	flag.IntVar(&lookaheadMin, "lookahead-min", 0, "look-ahead window in minutes (0=off)")
 	flag.Parse()
 
-	// Auto-generate node and workload CSVs if not provided
-	if nodesCSV == "" {
-		nodesCSV = "config/nodes.csv"
-		if err := generator.GenerateNodes(nodesCSV); err != nil {
-			log.Fatalf("node generation failed: %v", err)
-		}
-	}
-	if wlCSV == "" {
-		wlCSV = "config/workloads.csv"
-		if err := generator.GenerateWorkloads(wlCSV, time.Now().Unix()); err != nil {
-			log.Fatalf("workload generation failed: %v", err)
-		}
-	}
+	must(os.MkdirAll(outDir, 0o755))
 
 	ciWeights := parseFloatSlice(ciWeightsFlag)
 	batchSizes := parseIntSlice(batchSizesFlag)
+	overrideDurations := parseDurationSliceSeconds(durationsFlag)
 
-	// Load workloads once
-	wls := loader.LoadWorkloadsFromCSV(wlCSV)
-
-	// Apply duration overrides (NEW)
+	// ---- Load workloads once and apply duration knobs ----
+	workloads := loader.LoadWorkloadsFromCSV(wlCSV)
 	if durScale != 1.0 {
-		for i := range wls {
-			wls[i].Duration = time.Duration(float64(wls[i].Duration) * durScale)
+		for i := range workloads {
+			workloads[i].Duration = time.Duration(float64(workloads[i].Duration) * durScale)
 		}
 	}
-	if dset := parseDurationSliceSeconds(durationsFlag); len(dset) > 0 {
-		// deterministic assignment: round-robin
-		for i := range wls {
-			wls[i].Duration = dset[i%len(dset)]
+	if len(overrideDurations) > 0 {
+		for i := range workloads {
+			workloads[i].Duration = overrideDurations[i%len(overrideDurations)]
 		}
 	}
 
-	// Prepare top-level results directory and subfolder for this run
-	ts := time.Now().Unix()
-	topDir := "results"
-	runDir := filepath.Join(topDir, fmt.Sprintf("%d_results", ts))
-	if err := os.MkdirAll(runDir, 0755); err != nil {
-		log.Fatalf("failed to create run results dir: %v", err)
-	}
+	// keep a copy to rebuild map later per run
+	templateWl := make([]core.Workload, len(workloads))
+	copy(templateWl, workloads)
 
-	// Summary CSV for the sweep
-	summaryPath := filepath.Join(topDir, fmt.Sprintf("%d_ci_sweep_summary.csv", ts))
-	summaryFile, err := os.Create(summaryPath)
-	if err != nil {
-		log.Fatalf("failed to create summary CSV: %v", err)
-	}
-	defer summaryFile.Close()
-	summaryWriter := csv.NewWriter(summaryFile)
-	defer summaryWriter.Flush()
+	var allSummaries []SummaryRow
 
-	// Write summary header
-	summaryWriter.Write([]string{
-		"ci_weight", "batch_size", "scheduler",
-		"avg_wait_s", "avg_runtime_s", "total_ci_cost", "avg_solve_ms",
-	})
-
-	// Sweep configurations
 	for _, ciW := range ciWeights {
 		for _, bs := range batchSizes {
-			// Define scheduler specs
+
 			specs := []struct {
 				name string
 				run  func([]core.Workload) ([]core.LogEntry, float64)
 			}{
 				{
-					name: "carbonscaler",
-					run: func(workloads []core.Workload) ([]core.LogEntry, float64) {
+					name: "k8",
+					run: func(w []core.Workload) ([]core.LogEntry, float64) {
 						nodes := loader.LoadNodesFromCSV(nodesCSV)
 						sites := loader.LoadSitesFromCSV("config/sites.csv")
 						loader.AttachSites(nodes, sites)
 
-						pol := &carbonscaler.Policy{Cfg: carbonscaler.Config{Lambda: ciW}}
-
+						pol := &k8sched.Policy{}
 						sim := &core.BaseSim{}
-						sim.Init(nodes, pol) // ensure consistent init
+						sim.Init(nodes, pol)
 						sim.SetScheduleBatchSize(bs)
 						sim.CICalc = func(n *core.SimulatedNode, w core.Workload, at time.Time) float64 {
 							return metrics.ComputeCICost(n, w, at)
 						}
-						for _, j := range workloads {
+
+						// prepare map for CFP
+						workloadByID := map[string]core.Workload{}
+						for _, j := range w {
+							workloadByID[j.ID] = j
 							sim.AddWorkload(j)
 						}
 
 						start := time.Now()
 						sim.Run()
-						return sim.Logs(), float64(time.Since(start).Milliseconds())
+						elapsed := float64(time.Since(start).Milliseconds())
+
+						logs := sim.Logs()
+						writePerJobCSV(outDir, "k8", ciW, bs, logs)
+
+						s := summariseRun("k8", ciW, bs, logs, workloadByID)
+						s.ElapsedMs = elapsed
+						s.AlphaMass = alphaMass
+						s.LookaheadMin = lookaheadMin
+						s.DurationScale = durScale
+						s.DurationOverrides = durationsFlag
+						allSummaries = append(allSummaries, s)
+						return logs, elapsed
+					},
+				},
+				{
+					name: "carbonscaler",
+					run: func(w []core.Workload) ([]core.LogEntry, float64) {
+						nodes := loader.LoadNodesFromCSV(nodesCSV)
+						sites := loader.LoadSitesFromCSV("config/sites.csv")
+						loader.AttachSites(nodes, sites)
+
+						pol := &carbonscaler.Policy{Cfg: carbonscaler.Config{Lambda: ciW}}
+						sim := &core.BaseSim{}
+						sim.Init(nodes, pol)
+						sim.SetScheduleBatchSize(bs)
+						sim.CICalc = func(n *core.SimulatedNode, w core.Workload, at time.Time) float64 {
+							return metrics.ComputeCICost(n, w, at)
+						}
+
+						workloadByID := map[string]core.Workload{}
+						for _, j := range w {
+							workloadByID[j.ID] = j
+							sim.AddWorkload(j)
+						}
+
+						start := time.Now()
+						sim.Run()
+						elapsed := float64(time.Since(start).Milliseconds())
+
+						logs := sim.Logs()
+						writePerJobCSV(outDir, "carbonscaler", ciW, bs, logs)
+
+						s := summariseRun("carbonscaler", ciW, bs, logs, workloadByID)
+						s.ElapsedMs = elapsed
+						s.AlphaMass = alphaMass
+						s.LookaheadMin = lookaheadMin
+						s.DurationScale = durScale
+						s.DurationOverrides = durationsFlag
+						allSummaries = append(allSummaries, s)
+						return logs, elapsed
 					},
 				},
 				{
@@ -171,35 +174,11 @@ func main() {
 						sites := loader.LoadSitesFromCSV("config/sites.csv")
 						loader.AttachSites(nodes, sites)
 
-						// Use the swept weight (FIX)
 						pol := &cisched.Policy{
-							W:     cisched.Weights{Carbon: ciW, Wait: 0.2, Util: 0.05},
-							Scale: cisched.RobustScalingCfg{Enable: true, QLow: 0.05, QHigh: 0.95, Eps: 1e-9},
+							W:         cisched.Weights{Carbon: ciW, Wait: 0.10, Util: 0.05},
+							AlphaMass: alphaMass,
+							Lookahead: time.Duration(lookaheadMin) * time.Minute,
 						}
-
-						sim := &core.BaseSim{}
-						sim.Init(nodes, pol) // ensure consistent init
-						sim.SetScheduleBatchSize(bs)
-						sim.CICalc = func(n *core.SimulatedNode, w core.Workload, at time.Time) float64 {
-							return metrics.ComputeCICost(n, w, at)
-						}
-						for _, j := range w {
-							sim.AddWorkload(j)
-						}
-
-						start := time.Now()
-						sim.Run()
-						return sim.Logs(), float64(time.Since(start).Milliseconds())
-					},
-				},
-				{
-					name: "k8",
-					run: func(w []core.Workload) ([]core.LogEntry, float64) {
-						nodes := loader.LoadNodesFromCSV(nodesCSV)
-						sites := loader.LoadSitesFromCSV("config/sites.csv")
-						loader.AttachSites(nodes, sites)
-
-						pol := &k8sched.Policy{}
 
 						sim := &core.BaseSim{}
 						sim.Init(nodes, pol)
@@ -207,119 +186,223 @@ func main() {
 						sim.CICalc = func(n *core.SimulatedNode, w core.Workload, at time.Time) float64 {
 							return metrics.ComputeCICost(n, w, at)
 						}
+
+						workloadByID := map[string]core.Workload{}
 						for _, j := range w {
+							workloadByID[j.ID] = j
 							sim.AddWorkload(j)
 						}
 
 						start := time.Now()
 						sim.Run()
+						elapsed := float64(time.Since(start).Milliseconds())
+
 						logs := sim.Logs()
-						elapsedMs := float64(time.Since(start).Milliseconds())
-						return logs, elapsedMs
+						writePerJobCSV(outDir, "ci_aware", ciW, bs, logs)
+
+						s := summariseRun("ci_aware", ciW, bs, logs, workloadByID)
+						s.ElapsedMs = elapsed
+						s.AlphaMass = alphaMass
+						s.LookaheadMin = lookaheadMin
+						s.DurationScale = durScale
+						s.DurationOverrides = durationsFlag
+						allSummaries = append(allSummaries, s)
+						return logs, elapsed
 					},
 				},
-
-				// {
-				// 	name: "greenalg",
-				// 	run: func(jobs []core.Workload) ([]core.LogEntry, float64) {
-				// 		nodes := loader.LoadNodesFromCSV(nodesCSV)
-				// 		s := greenalg.NewGreenAlgorithms(nodes, greenalg.Config{W: greenalg.Weights{CI: 1.0, Dur: 0.2, Energy: 0.5}})
-				// 		s.SetScheduleBatchSize(bs)
-				// 		for _, j := range jobs {
-				// 			s.AddWorkload(j)
-				// 		}
-				// 		t := time.Now()
-				// 		s.Run()
-				// 		return s.Logs(), float64(time.Since(t).Milliseconds())
-				// 	},
-				// },
-				// {
-				// 	name: "ecovisor",
-				// 	run: func(jobs []core.Workload) ([]core.LogEntry, float64) {
-				// 		nodes := loader.LoadNodesFromCSV(nodesCSV)
-				// 		s := ecovisor.NewEcovisor(nodes, ecovisor.Config{W: ecovisor.Weights{SCI: 1.0, PUE: 0.3, Delay: 0.2}})
-				// 		s.SetScheduleBatchSize(bs)
-				// 		for _, j := range jobs {
-				// 			s.AddWorkload(j)
-				// 		}
-				// 		t := time.Now()
-				// 		s.Run()
-				// 		return s.Logs(), float64(time.Since(t).Milliseconds())
-				// 	},
-				// },
-				// {
-				// 	name: "energyvis",
-				// 	run: func(jobs []core.Workload) ([]core.LogEntry, float64) {
-				// 		nodes := loader.LoadNodesFromCSV(nodesCSV)
-				// 		s := energyvis.NewEnergyVis(nodes, energyvis.Config{W: energyvis.Weights{Power: 1.0, SCI: 0.3, Util: 0.2}})
-				// 		s.SetScheduleBatchSize(bs)
-				// 		for _, j := range jobs {
-				// 			s.AddWorkload(j)
-				// 		}
-				// 		t := time.Now()
-				// 		s.Run()
-				// 		return s.Logs(), float64(time.Since(t).Milliseconds())cmd/run_sim.go
-				// 	},
-				// },
-
 			}
 
-			// Run each scheduler and record metrics
+			// run all 3 schedulers for this (ciW, bs)
 			for _, spec := range specs {
-				logs, solveMs := spec.run(wls)
-
-				// Aggregate summary metrics
-				var sumWait, sumRun, sumCI float64
-				for _, e := range logs {
-					wait := float64(e.WaitMS) / 1000.0
-					runDur := e.End.Sub(e.Start).Seconds()
-					sumWait += wait
-					sumRun += runDur
-					sumCI += e.CICost
-				}
-				n := float64(len(logs))
-
-				// Write summary row
-				summaryWriter.Write([]string{
-					fmt.Sprintf("%g", ciW),
-					fmt.Sprintf("%d", bs),
-					spec.name,
-					fmt.Sprintf("%.3f", sumWait/n),
-					fmt.Sprintf("%.3f", sumRun/n),
-					fmt.Sprintf("%.3f", sumCI),
-					fmt.Sprintf("%.3f", solveMs/n),
-				})
-
-				// Write per-run job-level CSV
-				batchFile := filepath.Join(runDir,
-					fmt.Sprintf("%d_%s_%.2f_%d_results.csv", ts, spec.name, ciW, bs),
-				)
-				bf, err := os.Create(batchFile)
-				if err != nil {
-					log.Fatalf("failed to create batch file %s: %v", batchFile, err)
-				}
-				runWriter := csv.NewWriter(bf)
-				// header with CI cost
-				runWriter.Write([]string{"job_id", "sched", "node", "submit", "start", "end", "wait_ms", "ci_cost"})
-				for _, e := range logs {
-					runWriter.Write([]string{
-						e.JobID,
-						spec.name,
-						e.Node,
-						e.Submit.Format(time.RFC3339Nano),
-						e.Start.Format(time.RFC3339Nano),
-						e.End.Format(time.RFC3339Nano),
-						fmt.Sprint(e.WaitMS),
-						fmt.Sprintf("%.3f", e.CICost),
-					})
-				}
-				runWriter.Flush()
-				bf.Close()
-				log.Printf("Wrote batch results: %s (jobs=%d)", batchFile, len(logs))
-
+				// use a fresh copy of workloads per spec
+				wcopy := make([]core.Workload, len(templateWl))
+				copy(wcopy, templateWl)
+				_, _ = spec.run(wcopy)
 			}
 		}
 	}
 
-	log.Printf("CI sweep complete; summary in %s; batch results in %s", summaryPath, runDir)
+	// ---- write combined summary CSV + JSON ----
+	writeSummary(outDir, allSummaries)
+	fmt.Printf("Wrote %d summary rows to %s\n", len(allSummaries), filepath.Join(outDir, "summary.csv"))
+}
+
+// ---- Helpers ----
+
+func parseFloatSlice(s string) []float64 {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return nil
+	}
+	parts := strings.Split(s, ",")
+	out := make([]float64, 0, len(parts))
+	for _, p := range parts {
+		v, err := strconv.ParseFloat(strings.TrimSpace(p), 64)
+		if err == nil {
+			out = append(out, v)
+		}
+	}
+	return out
+}
+
+func parseIntSlice(s string) []int {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return nil
+	}
+	parts := strings.Split(s, ",")
+	out := make([]int, 0, len(parts))
+	for _, p := range parts {
+		v, err := strconv.Atoi(strings.TrimSpace(p))
+		if err == nil {
+			out = append(out, v)
+		}
+	}
+	return out
+}
+
+func parseDurationSliceSeconds(s string) []time.Duration {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return nil
+	}
+	fs := parseFloatSlice(s)
+	out := make([]time.Duration, len(fs))
+	for i, v := range fs {
+		out[i] = time.Duration(v * float64(time.Second))
+	}
+	return out
+}
+
+func writePerJobCSV(outDir, policy string, ciW float64, bs int, logs []core.LogEntry) {
+	fn := fmt.Sprintf("%s_%.2f_%d_results.csv", policy, ciW, bs)
+	path := filepath.Join(outDir, fn)
+	f, err := os.Create(path)
+	must(err)
+	defer f.Close()
+
+	w := csv.NewWriter(f)
+	defer w.Flush()
+
+	_ = w.Write([]string{"sched", "job_id", "node", "submit", "start", "end", "wait_ms", "ci_cost"})
+	for _, le := range logs {
+		row := []string{
+			policy,
+			le.JobID,
+			le.Node,
+			le.Submit.Format(time.RFC3339Nano),
+			le.Start.Format(time.RFC3339Nano),
+			le.End.Format(time.RFC3339Nano),
+			strconv.FormatInt(le.WaitMS, 10),
+			fmt.Sprintf("%.6f", le.CICost),
+		}
+		_ = w.Write(row)
+	}
+}
+
+func writeSummary(outDir string, rows []SummaryRow) {
+	// CSV
+	csvPath := filepath.Join(outDir, "summary.csv")
+	f, err := os.Create(csvPath)
+	must(err)
+	defer f.Close()
+	w := csv.NewWriter(f)
+	defer w.Flush()
+
+	_ = w.Write([]string{
+		"policy", "ci_weight", "batch_size",
+		"total_ci_cost_g", "avg_ci_per_job_g", "cfp_g_per_cpu_hour",
+		"avg_wait_s", "makespan_s", "elapsed_ms", "num_jobs",
+		"alpha_mass", "lookahead_min", "duration_scale", "duration_overrides",
+	})
+
+	for _, r := range rows {
+		_ = w.Write([]string{
+			r.Policy,
+			fmt.Sprintf("%.6f", r.CIWeight),
+			strconv.Itoa(r.BatchSize),
+			fmt.Sprintf("%.6f", r.TotalCICostG),
+			fmt.Sprintf("%.6f", r.AvgCIPerJobG),
+			fmt.Sprintf("%.6f", r.CFPgPerCPUHour),
+			fmt.Sprintf("%.6f", r.AvgWaitS),
+			fmt.Sprintf("%.6f", r.MakespanS),
+			fmt.Sprintf("%.3f", r.ElapsedMs),
+			strconv.Itoa(r.NumJobs),
+			fmt.Sprintf("%.4f", r.AlphaMass),
+			strconv.Itoa(r.LookaheadMin),
+			fmt.Sprintf("%.3f", r.DurationScale),
+			r.DurationOverrides,
+		})
+	}
+
+	// JSON (nice to have)
+	jPath := filepath.Join(outDir, "summary.json")
+	jf, err := os.Create(jPath)
+	must(err)
+	defer jf.Close()
+	enc := json.NewEncoder(jf)
+	enc.SetIndent("", "  ")
+	_ = enc.Encode(rows)
+}
+
+func summariseRun(policy string, ciW float64, bs int, logs []core.LogEntry, workloadByID map[string]core.Workload) SummaryRow {
+	var totalCI float64
+	var sumWaitMs int64
+	var minStart, maxEnd time.Time
+
+	var cfp metrics.CFPAggregate
+	for i, le := range logs {
+		totalCI += le.CICost
+		sumWaitMs += le.WaitMS
+		if i == 0 || le.Start.Before(minStart) {
+			minStart = le.Start
+		}
+		if i == 0 || le.End.After(maxEnd) {
+			maxEnd = le.End
+		}
+		// CFP fold
+		w := workloadByID[le.JobID]
+		rt := le.End.Sub(le.Start)
+		cfp.Add(w, le.CICost, rt)
+	}
+
+	n := len(logs)
+	avgWaitS := 0.0
+	if n > 0 {
+		avgWaitS = float64(sumWaitMs) / 1000.0 / float64(n)
+	}
+	makespanS := 0.0
+	if !minStart.IsZero() && !maxEnd.IsZero() {
+		makespanS = maxEnd.Sub(minStart).Seconds()
+	}
+
+	return SummaryRow{
+		Policy:            policy,
+		CIWeight:          ciW,
+		BatchSize:         bs,
+		TotalCICostG:      totalCI,
+		AvgCIPerJobG:      safeDiv(totalCI, float64(n)),
+		CFPgPerCPUHour:    cfp.CFPgPerCPUHour(),
+		AvgWaitS:          avgWaitS,
+		MakespanS:         makespanS,
+		ElapsedMs:         0,
+		NumJobs:           n,
+		AlphaMass:         0, // filled at caller
+		LookaheadMin:      0, // filled at caller
+		DurationScale:     0, // filled at caller
+		DurationOverrides: "",
+	}
+}
+
+func safeDiv(a, b float64) float64 {
+	if b == 0 {
+		return 0
+	}
+	return a / b
+}
+
+func must(err error) {
+	if err != nil {
+		log.Fatal(err)
+	}
 }
