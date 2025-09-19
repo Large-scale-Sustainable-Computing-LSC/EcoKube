@@ -13,22 +13,46 @@ KubeEnergyScheduler *aims* to be a platform-agnostic plugin that seamlessly inte
 
 ### Folder structure view
 ```txt
-kube-energy-scheduler/
-├── main.go
-├── scheduler/
-│   ├── cluster.go
-│   ├── strategy.go
-│   └── workload.go
-├── benchmark/
-│   ├── adapter.go
-│   └── generator.go
-├── metrics/
-│   └── prometheus.go
-├── data/
-│   └── workloads.csv
-├── go.mod
-├── go.sum
-...
+KubEnergySched/
+├─ models/                      # Simulation policies
+│  ├─ cisched/cisched.go
+│  ├─ carbonscaler/carbonscaler.go
+│  └─ k8sched/k8sched.go
+├─ pkg/core/                    # Simulation core
+│  ├─ basesim.go
+│  ├─ scheduler.go              # Policy interface – reuse in controller
+│  └─ ...
+├─ pkg/metrics/                 # CFP helpers – reuse
+│  ├─ metrics.go
+│  └─ cfp.go
+├─ testbed/
+│  ├─ deploy/
+│  │  ├─ 00-namespace.yaml
+│  │  ├─ 10-config-sites.yaml        # per-site {pue,k,region}
+│  │  ├─ 20-forecastservice.yaml     # stub service (per-site CI nowcast)
+│  │  ├─ 30-scaphandre-daemonset.yaml
+│  │  ├─ 40-prometheus.yaml          # or kube-prom-stack values
+│  │  ├─ 50-rbac.yaml
+│  │  ├─ 60-ci-scheduler.yaml        # scheduler plugin/extender Deployment + RBAC
+│  │  ├─ 70-workload-replayer.yaml
+│  │  └─ 80-grafana-dashboards/...
+│  ├─ controller/               # CI-Aware controller/plugin (Go)
+│  │  ├─ go.mod
+│  │  ├─ main.go
+│  │  ├─ pkg/
+│  │  │  ├─ karmada/            # phase 2 bits to choose target cluster
+│  │  │  ├─ k8s/                # pod/job informer, patch nodeAffinity
+│  │  │  ├─ scoring/            # wraps models/cisched for site scoring
+│  │  │  ├─ prom/               # Prometheus client & queries
+│  │  │  └─ cfg/                # load sites ConfigMap
+│  └─ workloads/
+│     ├─ jobs-batches.yaml      # generated from config/workloads.csv
+│     └─ traces/...
+└─ config/                      # (your CSVs)
+   ├─ nodes.csv
+   ├─ sites.csv
+   └─ workloads.csv
+
 ```
 
 - `scheduler/cluster.go`: Defines the Cluster interface and `SimulatedCluster` struct.
