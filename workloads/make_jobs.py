@@ -12,6 +12,8 @@ CANDIDATE_COLS = {
     "mem":      ["mem_gb","memory_gb","mem","memory","requested_memory_bytes","memory_request","ram_gb"],
     "duration": ["duration_s","runtime_s","run_time","runtime_sec","duration","walltime_s","wall_time_sec"]
 }
+MAX_JOBS = int(os.getenv("MAX_JOBS", "50"))
+
 
 def pick(row, keys, default=None):
     for k in keys:
@@ -41,8 +43,13 @@ def to_gi(mem_val):
         v = parse_float(s, 1.0)
         return f"{max(v,0.25):g}Gi"
 
-def job_from_row(row):
-    jid = str(pick(row, CANDIDATE_COLS["id"], default=f"anon-{int(time.time()*1000)}"))
+
+def job_from_row(row, index=None):
+    if index is not None:
+        jid = str(index).zfill(3)   # 000, 001, ...
+    else:
+        jid = str(pick(row, CANDIDATE_COLS["id"], default=f"anon-{int(time.time()*1000)}"))
+
     cpus = pick(row, CANDIDATE_COLS["cpus"], default="1")
     mem  = pick(row, CANDIDATE_COLS["mem"], default="1Gi")
     dur  = pick(row, CANDIDATE_COLS["duration"], default="60")
@@ -63,10 +70,40 @@ def job_from_row(row):
             limits={"cpu": cpus, "memory": mem}
         )
     )
-    podspec = client.V1PodSpec(restart_policy="Never", containers=[container])
+
+    # add static affinity for site=B
+    # this is temporary, for some reason things are not working with the remote injection.
+    affinity = client.V1Affinity(
+        node_affinity=client.V1NodeAffinity(
+            required_during_scheduling_ignored_during_execution=client.V1NodeSelector(
+                node_selector_terms=[
+                    client.V1NodeSelectorTerm(
+                        match_expressions=[
+                            client.V1NodeSelectorRequirement(
+                                key="site",
+                                operator="In",
+                                values=["B"]
+                            )
+                        ]
+                    )
+                ]
+            )
+        )
+    )
+
+    podspec = client.V1PodSpec(
+        restart_policy="Never",
+        containers=[container],
+        affinity=affinity
+    )
+
     template = client.V1PodTemplateSpec(
         metadata=client.V1ObjectMeta(
-            labels={"ciw/scheduler":"baseline","ciw/workload_id": jid},
+            labels={
+                "ciw/scheduler": "baseline",
+                "ciw/workload_id": jid,
+                "ciw/eligible": "true"
+            },
             annotations={"ciw/cpus": cpus, "ciw/duration_req_s": dur}
         ),
         spec=podspec
@@ -87,10 +124,13 @@ def main():
     csv_path = os.getenv("CSV_PATH","/data/workloads.csv")
     with open(csv_path, newline='') as f:
         r = csv.DictReader(f)
+        count = 0
         for row in r:
-            job, jid = job_from_row(row)
+            if count >= MAX_JOBS: break
+            job, jid = job_from_row(row, index=count)
             api.create_namespaced_job(namespace=NAMESPACE, body=job)
             print(f"submitted {jid}")
+            count += 1
             time.sleep(SLEEP_BETWEEN)
 
 if __name__ == "__main__":

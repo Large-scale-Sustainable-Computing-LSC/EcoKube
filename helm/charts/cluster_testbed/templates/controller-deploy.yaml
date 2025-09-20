@@ -12,7 +12,7 @@ spec:
       serviceAccountName: ci-aware
       containers:
         - name: ctrl
-          image: {{ .Values.ciAware.image | default "docker.io/goncaloferreirauva/ci-aware-controller:latest" | quote }}
+          image: goncaloferreirauva/ci-aware-controller:latest
           env:
             - name: WORKLOAD_NS
               value: "workloads"
@@ -24,4 +24,4 @@ spec:
       volumes:
         - name: sites
           configMap:
-            name: site-params         # reuse your existing ConfigMap
+            name: site-params

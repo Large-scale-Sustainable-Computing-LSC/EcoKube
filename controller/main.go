@@ -12,7 +12,6 @@ import (
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
@@ -121,7 +120,7 @@ func main() {
 		0, // resync disabled
 		informers.WithNamespace(watchNS),
 		informers.WithTweakListOptions(func(lo *metav1.ListOptions) {
-			lo.FieldSelector = fields.Everything().String()
+			lo.LabelSelector = "ciw/eligible=true"
 		}),
 	)
 

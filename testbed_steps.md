@@ -145,6 +145,8 @@ kubectl label node <worker-a> site=A --overwrite
 kubectl label node <worker-b> site=B --overwrite
 kubectl label node <worker-c> site=C --overwrite
 
+
+
 # 4.4 Apply site params + forecast service (reuse files)
 kubectl apply -f helm/charts/cluster_testbed/site-config-configmap.yaml
 kubectl apply -f helm/charts/cluster_testbed/forecast-service.yaml
@@ -166,3 +168,49 @@ helm upgrade --install cluter-testbed ./helm/charts/cluster_testbed \
   - helm/charts -> what's this
   - helm/data -> what is this used for?
   - helm/manual_config -> crd's and other podMonitor configs for Prometheus. Not sure if it is working.
+
+
+```bash
+# Create the site-params config in both workloads and ci-aware namespaces:
+kubectl -n ci-aware get configmap site-params -o yaml \
+| sed 's/namespace: ci-aware/namespace: workloads/' \
+| kubectl apply -f -
+
+kubectl -n workloads patch job workloads-replayer --type='json' -p='[
+  {"op":"replace","path":"/spec/template/spec/containers/0/image","value":"goncaloferreirauva/workload-replayer:0.1"},
+  {"op":"remove","path":"/spec/template/spec/containers/0/volumeMounts/0","value":{}}
+]' || true
+
+# delete and re-create the replayer Job via Helm so it picks up the right template
+kubectl -n workloads delete job workloads-replayer --ignore-not-found
+helm upgrade --install cluster-testbed ./helm/charts/cluster_testbed \
+  --set ciAware.image=goncaloferreirauva/ci-aware-controller:0.1 \
+  --set replayer.image=goncaloferreirauva/workload-replayer:0.1
+
+kubectl -n workloads rollout restart deploy/ci-aware-controller
+
+# Clean jobs
+kubectl -n workloads delete job -l ciw/scheduler=baseline
+
+## Clean jobs force, quicker
+# stop anything else submitting
+kubectl -n workloads delete job workloads-replayer --ignore-not-found
+
+# delete all Jobs quickly (no grace, don’t wait)
+kubectl -n workloads delete job --all --force --grace-period=0 --wait=false
+
+# also clear Pods (speeds things up)
+kubectl -n workloads delete pod -l job-name --force --grace-period=0 --wait=false
+
+# Sanity checks:
+# controller healthy
+kubectl -n workloads get pods
+kubectl -n workloads logs -f deploy/ci-aware-controller
+
+# replayer submits Jobs
+kubectl -n workloads logs -f job/workloads-replayer
+kubectl -n workloads get jobs,pods -o wide
+
+# confirm affinity injected
+kubectl -n workloads describe job <one-job> | sed -n '/Affinity/,+8p'
+```
