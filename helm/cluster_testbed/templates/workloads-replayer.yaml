@@ -1,0 +1,65 @@
+apiVersion: v1
+kind: Namespace
+metadata: { name: workloads }
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: workloads-csv
+  namespace: workloads
+data:
+  workloads.csv: |
+{{ .Files.Get "workloads/workloads.csv" | indent 4 }}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: replayer
+  namespace: workloads
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: job-writer
+  namespace: workloads
+rules:
+  - apiGroups: ["batch"]
+    resources: ["jobs"]
+    verbs: ["create","get","list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: job-writer
+  namespace: workloads
+subjects:
+  - kind: ServiceAccount
+    name: replayer
+    namespace: workloads
+roleRef:
+  kind: Role
+  apiGroup: rbac.authorization.k8s.io
+  name: job-writer
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: workloads-replayer
+  namespace: workloads
+spec:
+  template:
+    spec:
+      serviceAccountName: replayer
+      restartPolicy: Never
+      containers:
+        - name: replayer
+          image: "{{ .Values.replayer.image | default "goncaloferreirauva/workload-replayer" }}"
+          env:
+            - name: WORKLOAD_NS
+              value: "workloads"
+          volumeMounts:
+            - { name: data, mountPath: /data }
+      volumes:
+        - name: data
+          configMap:
+            name: workloads-csv

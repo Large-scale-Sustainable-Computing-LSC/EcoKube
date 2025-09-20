@@ -1,4 +1,3 @@
-# helm/prometheus/values.yaml
 server:
   service:
     type: ClusterIP
@@ -20,6 +19,30 @@ serviceMonitors:
   enabled: true
 podMonitors:
   enabled: true
+
+additionalScrapeConfigs:
+  - job_name: 'scaphandre'
+    kubernetes_sd_configs: [{role: pod}]
+    relabel_configs:
+      - action: keep
+        source_labels: [__meta_kubernetes_pod_label_app]
+        regex: scaphandre
+      - action: replace
+        source_labels: [__meta_kubernetes_pod_node_name]
+        target_label: node
+      - action: replace
+        source_labels: [__meta_kubernetes_node_label_site]
+        target_label: site
+  - job_name: 'forecastservice'
+    kubernetes_sd_configs: [{ role: endpoints }]
+    relabel_configs:
+      - action: keep
+        source_labels: [__meta_kubernetes_service_label_app]
+        regex: forecastservice
+      - action: replace
+        source_labels: [__meta_kubernetes_node_label_site]
+        target_label: site
+
 
   # extraVolumes:
   #   - name: prometheus-config
