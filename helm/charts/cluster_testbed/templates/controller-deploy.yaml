@@ -12,7 +12,7 @@ spec:
       serviceAccountName: ci-aware
       containers:
         - name: ctrl
-          image: "{{ .Values.ciAware.image | default "goncaloferreirauva/ci-aware-controller" }}"
+          image: {{ .Values.ciAware.image | default "docker.io/goncaloferreirauva/ci-aware-controller:latest" | quote }}
           env:
             - name: WORKLOAD_NS
               value: "workloads"

@@ -126,42 +126,35 @@ Here are the commands and steps to recreate the steps mentioned before.
 ### Chapter 1: Multi-cluster in 1 node.
 ```sh
 # Create namespace and add sites.json
-kubectl apply -f helm/cluster_testbed/site-config-configmap.yaml
+kubectl apply -f helm/charts/cluster_testbed/templates/site-config-configmap.yaml
 # Spin up deployment and service for the Forecast module.
-kubectl apply -f helm/cluster_testbed/forecast-service.yaml
+kubectl apply -f helm/charts/cluster_testbed/templates/forecast-service.yaml
 
 # Create monitoring namespace and apply the prom stack from Helm:
 helm upgrade --install prom prometheus-community/kube-prometheus-stack \
   -n monitoring --create-namespace \
-  -f helm/prometheus/values.yaml
+  -f helm/charts/prometheus/values.yaml
 
 # 4.1 Build images
-# export REG=ghcr.io/yourorg
-docker build -t $REG/ci-aware-controller:0.1 ./controller
-docker build -t $REG/workload-replayer:0.1 ./workloads
-# (optional) forecast service stub
-# docker build -t $REG/forecastservice:0.1 ./forecast_service
-
-# 4.2 Push or load
-docker push $REG/ci-aware-controller:0.1
-docker push $REG/workload-replayer:0.1
-# docker push $REG/forecastservice:0.1
+export REG=docker.io/goncaloferreirauva
+export TAG=0.1
+./scripts/build_push_image.sh
 
 # 4.3 Label nodes to emulate sites (once)
 kubectl label node <worker-a> site=A --overwrite
 kubectl label node <worker-b> site=B --overwrite
 kubectl label node <worker-c> site=C --overwrite
 
-# 4.4 Apply site params + forecast service (reuse your files)
-kubectl apply -f helm/charts/cluter_testbed/site-config-configmap.yaml
-kubectl apply -f helm/charts/cluter_testbed/forecast-service.yaml
+# 4.4 Apply site params + forecast service (reuse files)
+kubectl apply -f helm/charts/cluster_testbed/site-config-configmap.yaml
+kubectl apply -f helm/charts/cluster_testbed/forecast-service.yaml
 
 # 4.5 Prometheus stack
 helm upgrade --install prom prometheus-community/kube-prometheus-stack \
   -n monitoring --create-namespace -f helm/prometheus/values.yaml
 
-# 4.6 Deploy controller + replayer via your chart
-helm upgrade --install cluter-testbed ./helm/charts/cluter_testbed \
+# 4.6 Deploy controller + replayer via chart
+helm upgrade --install cluter-testbed ./helm/charts/cluster_testbed \
   --set ciAware.image=$REG/ci-aware-controller:0.1 \
   --set replayer.image=$REG/workload-replayer:0.1
 

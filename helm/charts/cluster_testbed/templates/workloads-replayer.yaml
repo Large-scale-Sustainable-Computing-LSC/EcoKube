@@ -53,7 +53,7 @@ spec:
       restartPolicy: Never
       containers:
         - name: replayer
-          image: "{{ .Values.replayer.image | default "goncaloferreirauva/workload-replayer" }}"
+          image: {{ .Values.ciAware.image | default "docker.io/goncaloferreirauva/workload-replayer:latest" | quote }}
           env:
             - name: WORKLOAD_NS
               value: "workloads"

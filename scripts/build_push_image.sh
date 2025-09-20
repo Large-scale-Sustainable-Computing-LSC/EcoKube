@@ -1,21 +1,37 @@
-#!/bin/bash
+#!/usr/bin/env bash
+set -euo pipefail
 
-# Depending on where we're executing this script, we need it's "absolute" path.
-SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
-cd $SCRIPT_DIR/..
+# Repo root
+SCRIPT_DIR="$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
+cd "$SCRIPT_DIR"/..
 
-# Central Unit
-docker build -f ./centralunit/Dockerfile -t gd1.lab.uvalight.net/centralunit .
-docker push gd1.lab.uvalight.net/centralunit:latest
+# Registry & tags
+REG="${REG:-docker.io/goncaloferreirauva}"
+TAG="${TAG:-0.1}"
 
-# Compute node
-docker build -f ./computenode/Dockerfile -t gd1.lab.uvalight.net/computenode .
-docker push gd1.lab.uvalight.net/computenode:latest
+echo "Using registry: $REG, tag: $TAG"
 
-# Benchmark
-docker build -f ./benchmark/Dockerfile -t gd1.lab.uvalight.net/benchmark .
-docker push gd1.lab.uvalight.net/benchmark:latest
+# Build controller
+echo "Building ci-aware-controller..."
+docker build ./controller -f ./controller/Dockerfile -t "$REG/ci-aware-controller:$TAG"
+docker tag "$REG/ci-aware-controller:$TAG" "$REG/ci-aware-controller:latest"
+docker push "$REG/ci-aware-controller:$TAG"
+docker push "$REG/ci-aware-controller:latest"
 
-# Powertrace
-docker build -f ./powertrace/Dockerfile -t gd1.lab.uvalight.net/powertrace:latest .
-docker push gd1.lab.uvalight.net/powertrace:latest
+# Build workload replayer
+echo "Building workload-replayer..."
+docker build ./workloads -f ./workloads/Dockerfile -t "$REG/workload-replayer:$TAG"
+docker tag "$REG/workload-replayer:$TAG" "$REG/workload-replayer:latest"
+docker push "$REG/workload-replayer:$TAG"
+docker push "$REG/workload-replayer:latest"
+
+# (Optional) Forecast service stub
+if [ -f "./forecast_service/Dockerfile" ]; then
+  echo "Building forecastservice..."
+  docker build ./forecast_service -f ./forecast_service/Dockerfile -t "$REG/forecastservice:$TAG"
+  docker tag "$REG/forecastservice:$TAG" "$REG/forecastservice:latest"
+  docker push "$REG/forecastservice:$TAG"
+  docker push "$REG/forecastservice:latest"
+fi
+
+echo "All images built and pushed."
