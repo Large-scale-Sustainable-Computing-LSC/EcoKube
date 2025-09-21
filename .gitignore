@@ -1,3 +1,4 @@
+
 results/
 results.zip
 .env
@@ -18,3 +19,4 @@ lib64/
 fabric_python/include/
 fabric_python/share/
 .ssh/
+share/
