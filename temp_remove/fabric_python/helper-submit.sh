@@ -1,0 +1,1 @@
+python3 create_slice.py -n="20250718_remote_test_01" -d="5" --ssh-key="id_rsa.pub"

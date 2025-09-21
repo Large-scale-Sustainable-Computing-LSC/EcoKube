@@ -1,0 +1,15 @@
+apiVersion: kubescheduler.config.k8s.io/v1
+kind: KubeSchedulerConfiguration
+leaderElection:
+  leaderElect: false
+profiles:
+- schedulerName: energy-scheduler
+  plugins:
+    filter:
+      enabled:
+      - name: EnergyEfficiencyPlugin
+      - name: DVFSPlugin
+    score:
+      enabled:
+      - name: EnergyEfficiencyPlugin
+      - name: DVFSPlugin
