@@ -13,7 +13,7 @@ import (
 	"time"
 
 	"github.com/g-uva/themistack/hermes/themis/policies/carbonscaler"
-	"github.com/g-uva/themistack/hermes/themis/policies/cisched"
+	"github.com/g-uva/themistack/hermes/themis/policies/themisbase"
 	"github.com/g-uva/themistack/hermes/themis/policies/k8sched"
 	"github.com/g-uva/themistack/hermes/pkg/core"
 	"github.com/g-uva/themistack/hermes/pkg/loader"
@@ -46,19 +46,44 @@ func main() {
 	var durScale float64
 	var alphaMass float64
 	var lookaheadMin int
+	var tracePath string
 
 	flag.StringVar(&nodesCSV, "nodes-csv", "config/nodes.csv", "path to nodes CSV")
 	flag.StringVar(&wlCSV, "wl-csv", "config/workloads.csv", "path to workloads CSV")
-	flag.StringVar(&outDir, "outdir", "results", "output directory for per-run CSVs and summary")
+	flag.StringVar(&outDir, "outdir", "", "output directory for per-run CSVs and summary (default results_YYYYmmdd_HHmmss)")
 	flag.StringVar(&ciWeightsFlag, "ci-weights", "0.05,0.2,0.8,1.2", "comma-separated base CI weights to sweep")
 	flag.StringVar(&batchSizesFlag, "batch-sizes", "32,128,256", "comma-separated batch sizes to sweep")
 	flag.StringVar(&durationsFlag, "durations", "", "override job durations (seconds) as comma-separated list; assigned round-robin")
 	flag.Float64Var(&durScale, "dur-scale", 1.0, "multiply all job durations by this factor")
 	flag.Float64Var(&alphaMass, "alpha-mass", 1.0, "adaptive carbon weight multiplier for big jobs (0=off)")
 	flag.IntVar(&lookaheadMin, "lookahead-min", 0, "look-ahead window in minutes (0=off)")
+	flag.StringVar(&tracePath, "trace-jsonl", "", "append JSON decision traces to this file (use 'auto' for outdir/decisions.jsonl)")
 	flag.Parse()
 
+	if outDir == "" {
+		outDir = fmt.Sprintf("results_%s", time.Now().Format("20060102_150405"))
+	}
 	must(os.MkdirAll(outDir, 0o755))
+
+	if tracePath == "auto" {
+		tracePath = filepath.Join(outDir, "decisions.jsonl")
+	}
+
+	var (
+		tracer      core.DecisionTracer
+		// traceWriter *core.JSONTraceWriter
+	)
+	if tracePath != "" {
+		must(os.MkdirAll(filepath.Dir(tracePath), 0o755))
+		tw, err := core.NewJSONTraceWriter(tracePath)
+		must(err)
+		// traceWriter := tw
+		tracer = tw
+		defer func() {
+			_ = tw.Close()
+		}()
+		fmt.Printf("Tracing decisions to %s\n", tracePath)
+	}
 
 	ciWeights := parseFloatSlice(ciWeightsFlag)
 	batchSizes := parseIntSlice(batchSizesFlag)
@@ -100,6 +125,9 @@ func main() {
 						pol := &k8sched.Policy{}
 						sim := &core.BaseSim{}
 						sim.Init(nodes, pol)
+						if tracer != nil {
+							sim.SetTracer(tracer)
+						}
 						sim.SetScheduleBatchSize(bs)
 						sim.CICalc = func(n *core.SimulatedNode, w core.Workload, at time.Time) float64 {
 							return metrics.ComputeCICost(n, w, at)
@@ -139,6 +167,9 @@ func main() {
 						pol := &carbonscaler.Policy{Cfg: carbonscaler.Config{Lambda: ciW}}
 						sim := &core.BaseSim{}
 						sim.Init(nodes, pol)
+						if tracer != nil {
+							sim.SetTracer(tracer)
+						}
 						sim.SetScheduleBatchSize(bs)
 						sim.CICalc = func(n *core.SimulatedNode, w core.Workload, at time.Time) float64 {
 							return metrics.ComputeCICost(n, w, at)
@@ -168,20 +199,23 @@ func main() {
 					},
 				},
 				{
-					name: "ci_aware",
+					name: "themis_base",
 					run: func(w []core.Workload) ([]core.LogEntry, float64) {
 						nodes := loader.LoadNodesFromCSV(nodesCSV)
 						sites := loader.LoadSitesFromCSV("config/sites.csv")
 						loader.AttachSites(nodes, sites)
 
-						pol := &cisched.Policy{
-							W:         cisched.Weights{Carbon: ciW, Wait: 0.10, Util: 0.05},
+						pol := &themisbase.Policy{
+							W:         themisbase.Weights{Carbon: ciW, Wait: 0.10, Util: 0.05},
 							AlphaMass: alphaMass,
 							Lookahead: time.Duration(lookaheadMin) * time.Minute,
 						}
 
 						sim := &core.BaseSim{}
 						sim.Init(nodes, pol)
+						if tracer != nil {
+							sim.SetTracer(tracer)
+						}
 						sim.SetScheduleBatchSize(bs)
 						sim.CICalc = func(n *core.SimulatedNode, w core.Workload, at time.Time) float64 {
 							return metrics.ComputeCICost(n, w, at)
@@ -198,9 +232,9 @@ func main() {
 						elapsed := float64(time.Since(start).Milliseconds())
 
 						logs := sim.Logs()
-						writePerJobCSV(outDir, "ci_aware", ciW, bs, logs)
+						writePerJobCSV(outDir, "themis_base", ciW, bs, logs)
 
-						s := summariseRun("ci_aware", ciW, bs, logs, workloadByID)
+						s := summariseRun("themis_base", ciW, bs, logs, workloadByID)
 						s.ElapsedMs = elapsed
 						s.AlphaMass = alphaMass
 						s.LookaheadMin = lookaheadMin

@@ -2,9 +2,13 @@ package core
 
 import (
 	"context"
+	"errors"
+	"time"
 )
 
 type Scores map[string]float64 // Lower is better.
+
+var ErrNoFeasible = errors.New("core: no feasible node")
 
 // ArgMin picks the node ID with minimum score.
 func ArgMin(sc Scores) (string, bool) {
@@ -23,6 +27,41 @@ type Scheduler interface {
 	Name() string
 	Score(ctx context.Context, job Job, nodes []Node) (Scores, error) // Score each candidate 
 	Select(Scores) (string, bool)
+}
+
+// DecisionTrace captures the reasoning for a single placement decision.
+type DecisionTrace struct {
+	Policy    string            `json:"policy"`
+	JobID     string            `json:"job"`
+	Selected  string            `json:"selected"`
+	Scores    Scores            `json:"scores,omitempty"`
+	Breakdown map[string]map[string]float64 `json:"breakdown,omitempty"`
+	Lambda    map[string]float64 `json:"lambda,omitempty"`
+	Timestamp time.Time         `json:"timestamp"`
+}
+
+// DecisionTracer consumes decision traces (e.g. to persist them as JSONL).
+type DecisionTracer interface {
+	Record(DecisionTrace)
+}
+
+// TraceablePolicy can emit structured breakdowns for decisions.
+type TraceablePolicy interface {
+	Policy
+	Trace(job Job, nodes []SimulatedNode, scores Scores, selected string) *DecisionTrace
+}
+
+// SelectSiteAndNode runs the policy scorer and picks the best candidate.
+// It returns ErrNoFeasible if no candidate scored or all were infeasible.
+func SelectSiteAndNode(ctx context.Context, pol Policy, job Job, nodes []SimulatedNode) (string, Scores, error) {
+	scores, err := pol.Score(ctx, job, nodes)
+	if err != nil {
+		return "", nil, err
+	}
+	if id, ok := ArgMin(scores); ok {
+		return id, scores, nil
+	}
+	return "", scores, ErrNoFeasible
 }
 
 // func (s *Scheduler) scoreJobOnNode(j Job, n Node, now time.Time) float64 {

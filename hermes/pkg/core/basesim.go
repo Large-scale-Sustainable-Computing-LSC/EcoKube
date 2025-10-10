@@ -25,8 +25,9 @@ type BaseSim struct {
 	LogsBuf []LogEntry
 
 	Select SelectFunc // optional: if set, used first
-	Policy Policy     // generic policy (cisched, carbonscaler, etc.)
+	Policy Policy     // generic policy (themis_base, carbonscaler, etc.)
 	CICalc func(n *SimulatedNode, w Workload, at time.Time) float64
+	Tracer DecisionTracer
 }
 
 func (b *BaseSim) Init(nodes []*SimulatedNode, pol Policy) {
@@ -36,6 +37,7 @@ func (b *BaseSim) Init(nodes []*SimulatedNode, pol Policy) {
 	b.Pending = nil
 	b.LogsBuf = nil
 	b.Policy = pol
+	b.Tracer = nil
 }
 
 func (b *BaseSim) SetScheduleBatchSize(n int) {
@@ -45,6 +47,8 @@ func (b *BaseSim) SetScheduleBatchSize(n int) {
 }
 func (b *BaseSim) AddWorkload(j Workload) { b.Pending = append(b.Pending, j) }
 func (b *BaseSim) Logs() []LogEntry       { return b.LogsBuf }
+
+func (b *BaseSim) SetTracer(t DecisionTracer) { b.Tracer = t }
 
 // simple eventless loop: process in submit-time order, greedy at current clock
 func (b *BaseSim) Run() {
@@ -153,12 +157,11 @@ func (b *BaseSim) selectNode(w Workload) *SimulatedNode {
 			DeadlineMs:        0,   // fill if relevant
 		}
 
-		if scores, err := b.Policy.Score(context.Background(), j, view); err == nil && len(scores) > 0 {
-			if id, ok := ArgMin(scores); ok {
-				for _, n := range b.Nodes {
-					if n.Name == id && n.CanAccept(w) {
-						return n
-					}
+		if id, scores, err := SelectSiteAndNode(context.Background(), b.Policy, j, view); err == nil {
+			for _, n := range b.Nodes {
+				if n.Name == id && n.CanAccept(w) {
+					b.recordDecisionTrace(j, view, scores, id)
+					return n
 				}
 			}
 		}
@@ -177,4 +180,38 @@ func (b *BaseSim) selectNode(w Workload) *SimulatedNode {
 		}
 	}
 	return best
+}
+
+func (b *BaseSim) recordDecisionTrace(job Job, nodes []SimulatedNode, scores Scores, selected string) {
+	if b.Tracer == nil || b.Policy == nil {
+		return
+	}
+
+	trace := &DecisionTrace{
+		JobID:    job.ID,
+		Policy:   b.Policy.Name(),
+		Selected: selected,
+		Scores:   scores,
+	}
+
+	if tp, ok := b.Policy.(TraceablePolicy); ok {
+		if custom := tp.Trace(job, nodes, scores, selected); custom != nil {
+			trace = custom
+			if trace.JobID == "" {
+				trace.JobID = job.ID
+			}
+			if trace.Policy == "" {
+				trace.Policy = b.Policy.Name()
+			}
+			if trace.Selected == "" {
+				trace.Selected = selected
+			}
+			if trace.Scores == nil {
+				trace.Scores = scores
+			}
+		}
+	}
+
+	trace.Timestamp = b.Clock
+	b.Tracer.Record(*trace)
 }

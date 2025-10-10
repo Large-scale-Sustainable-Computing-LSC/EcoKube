@@ -1,6 +1,7 @@
 
 results/
 results.zip
+hermes/results_*/
 .env
 .DS_Store
 config/
@@ -16,9 +17,11 @@ bin/
 etc/
 lib/
 lib64/
+lib64
 fabric_python/include/
 fabric_python/share/
 .ssh/
 share/
 
 thesis-overleaf/
+analysis/

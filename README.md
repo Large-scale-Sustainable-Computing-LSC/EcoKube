@@ -39,15 +39,15 @@ themistack/
    └─ thesis-overleaf/          # Thesis sources
 ```
 
-- `scheduler/cluster.go`: Defines the Cluster interface and `SimulatedCluster` struct.
+<!-- - `scheduler/cluster.go`: Defines the Cluster interface and `SimulatedCluster` struct.
 - `scheduler/strategy.go`: Implements various scheduling strategies (FCFS, RoundRobin, MinMin, MaxMin, EnergyAware).
 - `scheduler/workload.go`: Defines the Workload struct and functions to load workloads from CSV.
 - `benchmark/adapter.go`: Contains the `BenchmarkAdapter` struct to run benchmarks and export results.
 - `benchmark/generator.go`: Includes functions to generate synthetic workloads based on real-world patterns.
 - `metrics/prometheus.go`: Sets up Prometheus metrics and exposes them via an HTTP server.
-`main.go`: Entry point that ties everything together.
+`main.go`: Entry point that ties everything together. -->
 
----
+<!-- ---
 # KubeEnergyScheduler Project Tasks
 
 ## MVP Integration Tasks
@@ -178,4 +178,4 @@ themistack/
    - Docker images rebuilt and pushed correctly
 
 10. **Logs and debug**
-    - Proper log lines added to verify metric ingestion, scheduling actions, and API activity
+    - Proper log lines added to verify metric ingestion, scheduling actions, and API activity -->
