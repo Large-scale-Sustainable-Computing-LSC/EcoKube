@@ -1,9 +1,0 @@
-apiVersion: v2
-name: energy-scheduler
-version: 0.0.1
-description: A Helm chart for for benchmarking scheduling strategies in distributed high-performance computing Kubernetes clusters.
-dependencies:
-  - name: prometheus
-    version: "17.0.0"
-    repository: "https://prometheus-community.github.io/helm-charts"
-    alias: prometheus

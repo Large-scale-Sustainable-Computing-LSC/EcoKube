@@ -1,5 +1,5 @@
-### 🔋 KubEnergy
-KubeEnergyScheduler *aims* to be a platform-agnostic plugin that seamlessly integrates *heterogenous* cloud infrastructures optimising **sustainability**.
+### 🔋 THEMISTACK · Hermes
+Hermes is the sustainability-aware scheduler wrapper inside THEMISTACK. The goal is to integrate heterogeneous cloud infrastructures while optimising **sustainability**.
 
 - **Fully-managed**: the user (developer/researcher) does not have to worry about the underlying computation and resource allocation.
 - **Kubernetes-based**: Kubernetes is the *de facto* cluster framework used at the core of many cloud infrastructures.
@@ -9,50 +9,34 @@ KubeEnergyScheduler *aims* to be a platform-agnostic plugin that seamlessly inte
 - (Optional): clean unused files + Docker testbed configs.
 
 ### Testbed Architecture (WIP)
-![Testbed Architecture](assets/testbed_architecture.png)
+![Testbed Architecture](docs/assets/testbed_architecture.png)
 
-### Folder structure view
+### Repository layout
 ```txt
-KubEnergySched/
-├─ models/                      # Simulation policies
-│  ├─ cisched/cisched.go
-│  ├─ carbonscaler/carbonscaler.go
-│  └─ k8sched/k8sched.go
-├─ pkg/core/                    # Simulation core
-│  ├─ basesim.go
-│  ├─ scheduler.go              # Policy interface – reuse in controller
-│  └─ ...
-├─ pkg/metrics/                 # CFP helpers – reuse
-│  ├─ metrics.go
-│  └─ cfp.go
-├─ testbed/
-│  ├─ deploy/
-│  │  ├─ 00-namespace.yaml
-│  │  ├─ 10-config-sites.yaml        # per-site {pue,k,region}
-│  │  ├─ 20-forecastservice.yaml     # stub service (per-site CI nowcast)
-│  │  ├─ 30-scaphandre-daemonset.yaml
-│  │  ├─ 40-prometheus.yaml          # or kube-prom-stack values
-│  │  ├─ 50-rbac.yaml
-│  │  ├─ 60-ci-scheduler.yaml        # scheduler plugin/extender Deployment + RBAC
-│  │  ├─ 70-workload-replayer.yaml
-│  │  └─ 80-grafana-dashboards/...
-│  ├─ controller/               # CI-Aware controller/plugin (Go)
-│  │  ├─ go.mod
-│  │  ├─ main.go
-│  │  ├─ pkg/
-│  │  │  ├─ karmada/            # phase 2 bits to choose target cluster
-│  │  │  ├─ k8s/                # pod/job informer, patch nodeAffinity
-│  │  │  ├─ scoring/            # wraps models/cisched for site scoring
-│  │  │  ├─ prom/               # Prometheus client & queries
-│  │  │  └─ cfg/                # load sites ConfigMap
-│  └─ workloads/
-│     ├─ jobs-batches.yaml      # generated from config/workloads.csv
-│     └─ traces/...
-└─ config/                      # (your CSVs)
-   ├─ nodes.csv
-   ├─ sites.csv
-   └─ workloads.csv
-
+themistack/
+├─ hermes/                      # Scheduler wrapper (Go module)
+│  ├─ cmd/run_sim.go
+│  ├─ controller/               # K8s controller (Go module)
+│  ├─ pkg/                      # Simulation core + shared structs
+│  ├─ config/                   # CSV inputs (nodes/sites/workloads)
+│  ├─ scripts/                  # Helper scripts
+│  ├─ results/                  # Simulation outputs
+│  └─ workloads/                # Generated workloads
+├─ themis/
+│  └─ policies/                 # Sustainability policies (former models)
+├─ sim/
+│  └─ powertrace/               # Trace tooling and features
+├─ k8s/
+│  └─ helm/                     # Helm charts and manifests
+├─ kpis/
+│  └─ forecast_service/         # Forecast / KPI microservice stub
+├─ examples/
+│  ├─ fabric_testbed/           # FABRIC automation scripts and notes
+│  └─ jupyter/                  # Analysis notebooks
+└─ docs/
+   ├─ PLAN.md                   # Project refactor plan
+   ├─ assets/                   # Architecture diagrams
+   └─ thesis-overleaf/          # Thesis sources
 ```
 
 - `scheduler/cluster.go`: Defines the Cluster interface and `SimulatedCluster` struct.
@@ -195,4 +179,3 @@ KubEnergySched/
 
 10. **Logs and debug**
     - Proper log lines added to verify metric ingestion, scheduling actions, and API activity
-

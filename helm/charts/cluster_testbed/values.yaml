@@ -1,5 +1,0 @@
-ciAware:
-  image: "docker.io/goncaloferreirauva/ci-aware-controller:latest"
-
-replayer:
-  image: "docker.io/goncaloferreirauva/workload-replayer:latest"
