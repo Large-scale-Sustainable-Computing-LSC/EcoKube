@@ -5,8 +5,8 @@ import (
 	"time"
 	"math"
 
-	"kube-scheduler/pkg/core"
-	"kube-scheduler/pkg/metrics"
+	"github.com/g-uva/themistack/hermes/pkg/core"
+	"github.com/g-uva/themistack/hermes/pkg/metrics"
 )
 
 type Config struct{ Lambda float64 }

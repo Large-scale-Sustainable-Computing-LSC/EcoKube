@@ -9,7 +9,7 @@ import (
     "strings"
     "time"
 
-    "kube-scheduler/pkg/core"
+    "github.com/g-uva/themistack/hermes/pkg/core"
 )
 
 // loadNodesFromCSV parses a CSV of:

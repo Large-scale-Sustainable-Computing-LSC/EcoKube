@@ -2,7 +2,7 @@ package greenalg
 
 import (
 	"context"
-	api "kube-scheduler/pkg/core"
+	api "github.com/g-uva/themistack/hermes/pkg/core"
 )
 
 type GreenAlgorithms struct{ W struct{ CI, Dur, Energy float64 } }

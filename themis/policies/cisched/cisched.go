@@ -5,8 +5,8 @@ import (
 	"math"
 	"time"
 
-	"kube-scheduler/pkg/core"
-	"kube-scheduler/pkg/metrics"
+	"github.com/g-uva/themistack/hermes/pkg/core"
+	"github.com/g-uva/themistack/hermes/pkg/metrics"
 )
 
 // Score implements the CI-Aware scorer with adaptive carbon, convex penalty,

@@ -5,7 +5,7 @@ import (
 	"os"
 	"strconv"
 
-	"kube-scheduler/pkg/core"
+	"github.com/g-uva/themistack/hermes/pkg/core"
 )
 
 func LoadSitesFromCSV(path string) map[string]*core.Site {

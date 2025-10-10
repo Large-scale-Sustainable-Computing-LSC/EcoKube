@@ -46,7 +46,7 @@ models/*       → themis/policies/*
 ```
 
 Go module path:  
-`github.com/themistack/hermes` (update imports accordingly).
+`github.com/g-uva/themistack/hermes` (update imports accordingly).
 
 ---
 
@@ -121,7 +121,7 @@ Federation, provenance service, and multi-policy blending are **roadmap items**.
 
 ## 5. MVP Commit Steps
 
-1. Create new Go module `github.com/themistack/hermes`.
+1. Create new Go module `github.com/g-uva/themistack/hermes`.
 2. Move and rename folders as above.
 3. Add `themis_base` policy implementation.
 4. Implement `SelectSiteAndNode` and decision trace writer.

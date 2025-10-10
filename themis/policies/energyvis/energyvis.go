@@ -2,7 +2,7 @@ package energyvis
 
 import (
 	"context"
-	api "kube-scheduler/pkg/core"
+	api "github.com/g-uva/themistack/hermes/pkg/core"
 )
 
 type EnergyVis struct{ W struct{ Power, SCI, Util float64 } }

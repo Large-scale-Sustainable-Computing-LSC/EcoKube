@@ -12,12 +12,12 @@ import (
 	"strings"
 	"time"
 
-	"kube-scheduler/models/carbonscaler"
-	"kube-scheduler/models/cisched"
-	"kube-scheduler/models/k8sched"
-	"kube-scheduler/pkg/core"
-	"kube-scheduler/pkg/loader"
-	"kube-scheduler/pkg/metrics"
+	"github.com/g-uva/themistack/hermes/themis/policies/carbonscaler"
+	"github.com/g-uva/themistack/hermes/themis/policies/cisched"
+	"github.com/g-uva/themistack/hermes/themis/policies/k8sched"
+	"github.com/g-uva/themistack/hermes/pkg/core"
+	"github.com/g-uva/themistack/hermes/pkg/loader"
+	"github.com/g-uva/themistack/hermes/pkg/metrics"
 )
 
 // cross-product: (policy × ci_weight × batch_size)

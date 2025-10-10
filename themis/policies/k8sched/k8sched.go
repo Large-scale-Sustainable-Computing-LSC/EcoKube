@@ -5,7 +5,7 @@ import (
 	"math"
 	"time"
 
-	"kube-scheduler/pkg/core"
+	"github.com/g-uva/themistack/hermes/pkg/core"
 )
 
 type Policy struct{}
