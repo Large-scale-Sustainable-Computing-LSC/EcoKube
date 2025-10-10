@@ -1,0 +1,27 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ci-aware-controller
+  namespace: workloads
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: ci-aware-controller } }
+  template:
+    metadata: { labels: { app: ci-aware-controller } }
+    spec:
+      serviceAccountName: ci-aware
+      containers:
+        - name: ctrl
+          image: goncaloferreirauva/ci-aware-controller:latest
+          env:
+            - name: WORKLOAD_NS
+              value: "workloads"
+            - name: SITES_PATH
+              value: "/etc/ci-aware/sites.json"
+          volumeMounts:
+            - name: sites
+              mountPath: /etc/ci-aware
+      volumes:
+        - name: sites
+          configMap:
+            name: site-params

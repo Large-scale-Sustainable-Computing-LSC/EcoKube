@@ -1,0 +1,85 @@
+server:
+  service:
+    type: ClusterIP
+    port: 9090
+  ingress:
+    enabled: false
+
+alertmanager:
+  enabled: false
+
+prometheus:
+  prometheusSpec:
+    podMonitorSelector:
+      matchLabels:
+        release: eu-cluster
+
+
+serviceMonitors:
+  enabled: true
+podMonitors:
+  enabled: true
+
+additionalScrapeConfigs:
+  - job_name: 'scaphandre'
+    kubernetes_sd_configs: [{role: pod}]
+    relabel_configs:
+      - action: keep
+        source_labels: [__meta_kubernetes_pod_label_app]
+        regex: scaphandre
+      - action: replace
+        source_labels: [__meta_kubernetes_pod_node_name]
+        target_label: node
+      - action: replace
+        source_labels: [__meta_kubernetes_node_label_site]
+        target_label: site
+  - job_name: 'forecastservice'
+    kubernetes_sd_configs: [{ role: endpoints }]
+    relabel_configs:
+      - action: keep
+        source_labels: [__meta_kubernetes_service_label_app]
+        regex: forecastservice
+      - action: replace
+        source_labels: [__meta_kubernetes_node_label_site]
+        target_label: site
+
+
+  # extraVolumes:
+  #   - name: prometheus-config
+  #     configMap:
+  #       name: prometheus-config
+
+  # extraVolumeMounts:
+  #   - name: prometheus-config
+  #     mountPath: /etc/prometheus
+  #     readOnly: true
+
+  # configMapOverrideName: "prometheus-config"
+
+# serverFiles:
+#   prometheus.yml:
+#     global:
+#       scrape_interval: 15s
+#     scrape_configs:
+#       - job_name: 'prometheus'
+#         static_configs:
+#           - targets: ['localhost:9090']
+
+#       - job_name: 'scaphandre'
+#         static_configs:
+#           - targets: ['compute.eu-central.svc.cluster.local:8080']
+
+# scrape scaphandre sidecar on compute pods in this namespace
+# additionalScrapeConfigs:
+#   - job_name: 'scaphandre'
+#     static_configs:
+#       - targets: ['compute.eu-central.svc.cluster.local:8080']
+    # kubernetes_sd_configs:
+    #   - role: endpoints
+    # relabel_configs:
+    #   - source_labels: [__meta_kubernetes_service_name]
+    #     regex: 'compute'
+    #     action: keep
+    #   - source_labels: [__meta_kubernetes_endpoint_port_name]
+    #     regex: 'rawmetrics'
+    #     action: keep

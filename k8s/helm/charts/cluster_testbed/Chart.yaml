@@ -1,0 +1,6 @@
+apiVersion: v2
+name: cluster-testbed
+description: CI-aware testbed MVP (forecast stub, controller, replayer)
+type: application
+version: 0.1.0
+appVersion: "0.1.0"

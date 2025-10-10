@@ -1,0 +1,35 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: forecastservice
+  namespace: ci-aware
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: forecastservice } }
+  template:
+    metadata: { labels: { app: forecastservice } }
+    spec:
+      containers:
+        - name: svc
+          image: goncaloferreirauva/forecastservice:0.1
+          command: ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "9100"]
+          env:
+            - name: SITES_PATH
+              value: /etc/ci-aware/sites.json
+          # args: ["--sites", "/etc/ci-aware/sites.json", "--mode=static"]
+          ports: [{ name: metrics, containerPort: 9100 }]
+          volumeMounts:
+            - { name: sites, mountPath: /etc/ci-aware }
+      volumes:
+        - name: sites
+          configMap: { name: site-params }
+---
+apiVersion: v1
+kind: Service
+metadata: { name: forecastservice, namespace: ci-aware, labels: { app: forecastservice } }
+spec:
+  selector: { app: forecastservice }
+  ports:
+    - name: metrics
+      port: 9100
+      targetPort: metrics
