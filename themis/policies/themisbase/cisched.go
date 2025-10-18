@@ -5,8 +5,8 @@ import (
 	"math"
 	"time"
 
-	"github.com/g-uva/themistack/hermes/pkg/core"
-	"github.com/g-uva/themistack/hermes/pkg/metrics"
+	"github.com/g-uva/KubEnergySched/hermes/pkg/core"
+	"github.com/g-uva/KubEnergySched/hermes/pkg/metrics"
 )
 
 // Score implements the CI-Aware scorer with adaptive carbon, convex penalty,
@@ -149,30 +149,27 @@ func (p *Policy) Score(ctx context.Context, j core.Job, nodes []core.SimulatedNo
 func isFinite(x float64) bool { return !math.IsNaN(x) && !math.IsInf(x, 0) }
 
 func (p *Policy) Trace(job core.Job, nodes []core.SimulatedNode, scores core.Scores, selected string) *core.DecisionTrace {
-	breakdown := make(map[string]map[string]float64, len(p.lastBreakdown))
-	for id, parts := range p.lastBreakdown {
-		cp := make(map[string]float64, len(parts))
-		for k, v := range parts {
-			cp[k] = v
-		}
-		breakdown[id] = cp
-	}
-
-	lambda := map[string]float64{
-		"carbon": p.W.Carbon,
-		"wait":   p.W.Wait,
-		"util":   p.W.Util,
-	}
-	if p.AlphaMass != 0 {
-		lambda["alpha_mass"] = p.AlphaMass
-	}
-
-	return &core.DecisionTrace{
-		Selected:  selected,
-		Scores:    scores,
-		Breakdown: breakdown,
-		Lambda:    lambda,
-	}
+        dt := &core.DecisionTrace{
+                JobID:    job.ID,
+                Node:     selected,
+                ThetaE:   p.W.Carbon,
+                ThetaC:   p.W.Wait,
+                ForecastUsed: false,
+                Fallback: false,
+        }
+        if cost, ok := scores[selected]; ok {
+                dt.Cost = cost
+        }
+        for i := range nodes {
+                if nodes[i].Name == selected || nodes[i].ID == selected {
+                        dt.Site = nodes[i].SiteID
+                        if dt.Site == "" && nodes[i].Site != nil {
+                                dt.Site = nodes[i].Site.ID
+                        }
+                        break
+                }
+        }
+        return dt
 }
 
 // ----------------- helpers -----------------

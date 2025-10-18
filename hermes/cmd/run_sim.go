@@ -12,12 +12,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/g-uva/themistack/hermes/themis/policies/carbonscaler"
-	"github.com/g-uva/themistack/hermes/themis/policies/themisbase"
-	"github.com/g-uva/themistack/hermes/themis/policies/k8sched"
-	"github.com/g-uva/themistack/hermes/pkg/core"
-	"github.com/g-uva/themistack/hermes/pkg/loader"
-	"github.com/g-uva/themistack/hermes/pkg/metrics"
+	"github.com/g-uva/KubEnergySched/hermes/pkg/core"
+	"github.com/g-uva/KubEnergySched/hermes/pkg/loader"
+	"github.com/g-uva/KubEnergySched/hermes/pkg/metrics"
+	"github.com/g-uva/KubEnergySched/hermes/themis/policies/carbonscaler"
+	"github.com/g-uva/KubEnergySched/hermes/themis/policies/k8sched"
+	"github.com/g-uva/KubEnergySched/hermes/themis/policies/themisbase"
 )
 
 // cross-product: (policy × ci_weight × batch_size)
@@ -70,7 +70,7 @@ func main() {
 	}
 
 	var (
-		tracer      core.DecisionTracer
+		tracer core.DecisionTracer
 		// traceWriter *core.JSONTraceWriter
 	)
 	if tracePath != "" {
@@ -397,7 +397,7 @@ func summariseRun(policy string, ciW float64, bs int, logs []core.LogEntry, work
 		// CFP fold
 		w := workloadByID[le.JobID]
 		rt := le.End.Sub(le.Start)
-		cfp.Add(w, le.CICost, rt)
+		cfp.Add(w.CPU, le.CICost, rt)
 	}
 
 	n := len(logs)

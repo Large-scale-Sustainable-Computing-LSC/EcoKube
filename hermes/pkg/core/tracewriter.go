@@ -1,44 +1,56 @@
 package core
 
 import (
+	"bufio"
 	"encoding/json"
 	"os"
 	"sync"
 )
 
-// JSONTraceWriter appends decision traces to a JSONL file.
 type JSONTraceWriter struct {
-	mu  sync.Mutex
-	enc *json.Encoder
-	f   *os.File
+	mu sync.Mutex
+	w  *bufio.Writer
+	f  *os.File
 }
 
-// NewJSONTraceWriter creates a writer that appends to path (creating it if needed).
 func NewJSONTraceWriter(path string) (*JSONTraceWriter, error) {
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
 	if err != nil {
 		return nil, err
 	}
-	return &JSONTraceWriter{
-		enc: json.NewEncoder(f),
-		f:   f,
-	}, nil
+	return &JSONTraceWriter{w: bufio.NewWriter(f), f: f}, nil
 }
 
-// Record writes the trace as one JSON object per line.
-func (w *JSONTraceWriter) Record(trace DecisionTrace) {
-	if w == nil || w.enc == nil {
-		return
-	}
-	w.mu.Lock()
-	defer w.mu.Unlock()
-	_ = w.enc.Encode(trace)
-}
-
-// Close releases the underlying file handle.
-func (w *JSONTraceWriter) Close() error {
-	if w == nil || w.f == nil {
+func (tw *JSONTraceWriter) Record(dt DecisionTrace) error {
+	if tw == nil || tw.w == nil {
 		return nil
 	}
-	return w.f.Close()
+	tw.mu.Lock()
+	defer tw.mu.Unlock()
+	enc, err := json.Marshal(dt)
+	if err != nil {
+		return err
+	}
+	if _, err := tw.w.Write(enc); err != nil {
+		return err
+	}
+	if err := tw.w.WriteByte('\n'); err != nil {
+		return err
+	}
+	return tw.w.Flush()
+}
+
+func (tw *JSONTraceWriter) Close() error {
+	if tw == nil || tw.f == nil {
+		return nil
+	}
+	tw.mu.Lock()
+	defer tw.mu.Unlock()
+	if tw.w != nil {
+		if err := tw.w.Flush(); err != nil {
+			_ = tw.f.Close()
+			return err
+		}
+	}
+	return tw.f.Close()
 }
