@@ -91,9 +91,8 @@ func (b *BaseSim) Run() {
 
 			var ci float64
 			if b.CICalc != nil {
-				ci = b.CICalc(n,w,start)
+				ci = b.CICalc(n, w, start)
 			}
-
 
 			n.Reserve(w, start)
 			end := start.Add(w.Duration)
@@ -187,31 +186,62 @@ func (b *BaseSim) recordDecisionTrace(job Job, nodes []SimulatedNode, scores Sco
 		return
 	}
 
-	trace := &DecisionTrace{
-		JobID:    job.ID,
-		Policy:   b.Policy.Name(),
-		Selected: selected,
-		Scores:   scores,
+	var chosen *SimulatedNode
+	for i := range nodes {
+		if nodes[i].ID == selected || nodes[i].Name == selected {
+			chosen = &nodes[i]
+			break
+		}
 	}
 
+	trace := &DecisionTrace{
+		JobID:     job.ID,
+		Node:      selected,
+		QueuedAt:  job.SubmitAt,
+		StartedAt: b.Clock,
+		EndedAt:   b.Clock,
+	}
+	if chosen != nil {
+		trace.Site = chosen.SiteID
+		if trace.Site == "" && chosen.Site != nil {
+			trace.Site = chosen.Site.ID
+		}
+		trace.Node = chosen.Name
+	}
+	if cost, ok := scores[selected]; ok {
+		trace.Cost = cost
+	}
 	if tp, ok := b.Policy.(TraceablePolicy); ok {
 		if custom := tp.Trace(job, nodes, scores, selected); custom != nil {
 			trace = custom
 			if trace.JobID == "" {
 				trace.JobID = job.ID
 			}
-			if trace.Policy == "" {
-				trace.Policy = b.Policy.Name()
+			if trace.Node == "" {
+				trace.Node = selected
 			}
-			if trace.Selected == "" {
-				trace.Selected = selected
+			if trace.Site == "" && chosen != nil {
+				trace.Site = chosen.SiteID
+				if trace.Site == "" && chosen.Site != nil {
+					trace.Site = chosen.Site.ID
+				}
 			}
-			if trace.Scores == nil {
-				trace.Scores = scores
+			if trace.Cost == 0 {
+				if cost, ok := scores[selected]; ok {
+					trace.Cost = cost
+				}
+			}
+			if trace.QueuedAt.IsZero() {
+				trace.QueuedAt = job.SubmitAt
+			}
+			if trace.StartedAt.IsZero() {
+				trace.StartedAt = b.Clock
+			}
+			if trace.EndedAt.IsZero() {
+				trace.EndedAt = b.Clock
 			}
 		}
 	}
 
-	trace.Timestamp = b.Clock
-	b.Tracer.Record(*trace)
+	_ = b.Tracer.Record(*trace)
 }

@@ -2,7 +2,7 @@ package greenalg
 
 import (
 	"context"
-	api "github.com/g-uva/themistack/hermes/pkg/core"
+	api "github.com/g-uva/KubEnergySched/hermes/pkg/core"
 )
 
 type GreenAlgorithms struct{ W struct{ CI, Dur, Energy float64 } }
