@@ -2,7 +2,7 @@ package ecovisor
 
 import (
 	"context"
-	api "github.com/g-uva/themistack/hermes/pkg/core"
+	api "github.com/g-uva/KubEnergySched/hermes/pkg/core"
 )
 
 type CarbonScaler struct{ Lambda float64 }

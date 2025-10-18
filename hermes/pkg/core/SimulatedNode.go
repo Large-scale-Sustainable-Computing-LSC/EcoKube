@@ -6,19 +6,19 @@ import (
 )
 
 type SimulatedNode struct {
-	ID			 string
+	ID              string
 	Name            string
 	TotalCPU        float64
 	TotalMemory     float64
 	AvailableCPU    float64
 	AvailableMemory float64
-	CarbonIntensity float64        // gCO₂/kWh (optional, if we have traces keep it)
+	CarbonIntensity float64 // gCO₂/kWh (optional, if we have traces keep it)
 	Labels          map[string]string
 	Metadata        map[string]string
 
-	Reservations    []Reservation
-	SiteID		 string
-	Site			 *Site
+	Reservations []Reservation
+	SiteID       string
+	Site         *Site
 }
 
 func NewNode(name string, cpu, mem, ci float64) *SimulatedNode {
@@ -37,6 +37,10 @@ func NewNode(name string, cpu, mem, ci float64) *SimulatedNode {
 
 func (n *SimulatedNode) CanAccept(w Workload) bool {
 	return n.AvailableCPU >= w.CPU && n.AvailableMemory >= w.Memory
+}
+
+func (n *SimulatedNode) CanAcceptJob(j Job) bool {
+	return n.AvailableCPU >= j.CPUReq && n.AvailableMemory >= j.MemReq
 }
 
 func (n *SimulatedNode) Reserve(w Workload, start time.Time) {

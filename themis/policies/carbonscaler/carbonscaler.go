@@ -5,8 +5,8 @@ import (
 	"time"
 	"math"
 
-	"github.com/g-uva/themistack/hermes/pkg/core"
-	"github.com/g-uva/themistack/hermes/pkg/metrics"
+	"github.com/g-uva/KubEnergySched/hermes/pkg/core"
+	"github.com/g-uva/KubEnergySched/hermes/pkg/metrics"
 )
 
 type Config struct{ Lambda float64 }

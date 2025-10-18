@@ -1,9 +1,6 @@
 package metrics
 
-import (
-	"time"
-	"github.com/g-uva/themistack/hermes/pkg/core"
-)
+import "time"
 
 type CFPAggregate struct {
 	TotalCIg      float64
@@ -11,13 +8,15 @@ type CFPAggregate struct {
 	Jobs          int
 }
 
-func (a *CFPAggregate) Add(w core.Workload, ci_g float64, runtime time.Duration) {
-	a.TotalCIg += ci_g
+func (a *CFPAggregate) Add(cpu float64, ciG float64, runtime time.Duration) {
+	a.TotalCIg += ciG
 	a.Jobs++
-	a.TotalCPUHours += (w.CPU * runtime.Hours())
+	a.TotalCPUHours += cpu * runtime.Hours()
 }
 
 func (a *CFPAggregate) CFPgPerCPUHour() float64 {
-	if a.TotalCPUHours <= 0 { return 0 }
+	if a.TotalCPUHours <= 0 {
+		return 0
+	}
 	return a.TotalCIg / a.TotalCPUHours
 }

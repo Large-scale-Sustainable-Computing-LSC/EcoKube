@@ -3,49 +3,42 @@ package core
 import (
 	"context"
 	"errors"
+	"math"
 	"time"
+
+	"github.com/g-uva/KubEnergySched/hermes/pkg/forecast"
 )
 
 type Scores map[string]float64 // Lower is better.
 
 var ErrNoFeasible = errors.New("core: no feasible node")
 
-// ArgMin picks the node ID with minimum score.
-func ArgMin(sc Scores) (string, bool) {
-	best := ""
-	bestV := 0.0
-	ok := false
-	for id, v := range sc {
-		if !ok || v< bestV {
-			best, bestV, ok = id, v, true
+// ArgMin picks the node ID with minimum score using a deterministic tie-breaker.
+func ArgMin(scores map[string]float64) (id string, ok bool) {
+	if len(scores) == 0 {
+		return "", false
+	}
+	best := math.Inf(1)
+	var bestID string
+	for nodeID, cost := range scores {
+		if cost < best || (cost == best && (bestID == "" || nodeID < bestID)) {
+			best = cost
+			bestID = nodeID
 		}
 	}
-	return best, ok
+	return bestID, true
 }
 
 type Scheduler interface {
 	Name() string
-	Score(ctx context.Context, job Job, nodes []Node) (Scores, error) // Score each candidate 
+	Score(ctx context.Context, job Job, nodes []Node) (Scores, error) // Score each candidate
 	Select(Scores) (string, bool)
 }
 
-// DecisionTrace captures the reasoning for a single placement decision.
-type DecisionTrace struct {
-	Policy    string            `json:"policy"`
-	JobID     string            `json:"job"`
-	Selected  string            `json:"selected"`
-	Scores    Scores            `json:"scores,omitempty"`
-	Breakdown map[string]map[string]float64 `json:"breakdown,omitempty"`
-	Lambda    map[string]float64 `json:"lambda,omitempty"`
-	Timestamp time.Time         `json:"timestamp"`
-}
-
-// DecisionTracer consumes decision traces (e.g. to persist them as JSONL).
 type DecisionTracer interface {
-	Record(DecisionTrace)
+	Record(DecisionTrace) error
 }
 
-// TraceablePolicy can emit structured breakdowns for decisions.
 type TraceablePolicy interface {
 	Policy
 	Trace(job Job, nodes []SimulatedNode, scores Scores, selected string) *DecisionTrace
@@ -64,32 +57,79 @@ func SelectSiteAndNode(ctx context.Context, pol Policy, job Job, nodes []Simulat
 	return "", scores, ErrNoFeasible
 }
 
-// func (s *Scheduler) scoreJobOnNode(j Job, n Node, now time.Time) float64 {
-//     // 1) Forecasted/observed CI for node's site
-//     ci := s.ci.Forecast(n.SiteID, now, j.EstimatedDuration) // gCO2/kWh time series (avg/area)
-//     // 2) Energy integral (estimator) and site normalisation
-//     eJ := s.energy.EstimateJoules(j, n)                     // ∫ P_j dt (J)
-//     ciCost := (eJ/3.6e6) * ci * n.Site.PUE * n.Site.K       // -> grams CO2
-//     // 3) Delay/queue proxies
-//     wait := s.queue.EstimatedStartDelay(n.SiteID, j, now).Seconds()
-//     qlen := s.queue.Length(n.SiteID)
-//     // 4) Optional price/repro terms (placeholders if unused)
-//     price := s.price.Estimate(n.SiteID, j)
-//     repro := s.repro.Penalty(j, n)
-//     // 5) Weighted sum (lower is better)
-//     return s.W.Carbon*ciCost + s.W.Wait*wait + s.W.Queue*float64(qlen) +
-//            s.W.Price*price + s.W.Repro*repro
-// }
+// Weights controls the relative importance of normalised energy and carbon.
+type Weights struct {
+	E float64
+	C float64
+}
 
-// func (s *Scheduler) SelectSiteAndNode(j core.Job, now time.Time) (siteID, nodeID string, ok bool) {
-//     best := math.Inf(1)
-//     for _, site := range s.Sites {
-//         if !s.queue.HasCapacity(site.ID, j, now) { continue }
-//         cand := s.bestNodeAtSite(j, site, now)    // evaluates scoreJobOnNode
-//         if cand.found && cand.score < best {
-//             best, siteID, nodeID = cand.score, site.ID, cand.node.ID
-//             ok = true
-//         }
-//     }
-//     return
-// }
+// RefScales provides reference normalisation factors for energy and carbon.
+type RefScales struct {
+	ERef float64
+	CRef float64
+}
+
+// buildCandidateSet filters nodes based on feasibility constraints.
+func buildCandidateSet(j Job, nodes []SimulatedNode, alpha, egressCap float64, now time.Time) (cands []SimulatedNode, rejects map[string]string) {
+	rejects = map[string]string{}
+	for _, n := range nodes {
+		if !n.CanAcceptJob(j) {
+			rejects[n.ID] = "capacity"
+			continue
+		}
+		if probSLO(j) < alpha {
+			rejects[n.ID] = "slo"
+			continue
+		}
+		if estimateEgress(j, &n) > egressCap {
+			rejects[n.ID] = "egress"
+			continue
+		}
+		cands = append(cands, n)
+	}
+	return
+}
+
+var (
+	probSLOFn        = func(Job) float64 { return 1.0 }
+	estimateEgressFn = func(Job, *SimulatedNode) float64 { return 0 }
+)
+
+func probSLO(j Job) float64 { return probSLOFn(j) }
+
+func estimateEgress(j Job, n *SimulatedNode) float64 { return estimateEgressFn(j, n) }
+
+// evalCost computes the normalised energy and carbon cost for a candidate node.
+func evalCost(j Job, n *SimulatedNode, T time.Duration, refs RefScales, theta Weights, now time.Time, prov forecast.CIProvider) (eT, cT, J float64) {
+	var (
+		sitePUE     float64
+		siteK       float64
+		carbonFloat float64
+		region      string
+	)
+	if n.Site != nil {
+		sitePUE = n.Site.PUE
+		siteK = n.Site.K
+		carbonFloat = n.Site.CarbonIntensity
+		region = n.Site.CIRegion
+	}
+	if sitePUE == 0 {
+		sitePUE = 1
+	}
+	if siteK == 0 {
+		siteK = 1
+	}
+	if carbonFloat == 0 {
+		carbonFloat = n.CarbonIntensity
+	}
+	if prov != nil {
+		if samples, err := prov.ForecastCI(region, T); err == nil && len(samples) > 0 {
+			carbonFloat = samples[0]
+		}
+	}
+	energyKWh := estimateEnergyKWh(j.EstimatedDuration, n.Labels, T, siteK)
+	carbonKg := estimateCarbonKg(energyKWh, sitePUE, carbonFloat)
+	eT, cT = normaliseCost(energyKWh, carbonKg, refs)
+	J = theta.E*eT + theta.C*cT
+	return
+}
