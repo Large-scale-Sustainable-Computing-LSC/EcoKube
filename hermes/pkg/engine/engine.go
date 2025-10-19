@@ -18,27 +18,15 @@ type Deps struct {
     Now     func() time.Time // inject clock for parity
 }
 
-// Public entry: SAME for simulation and K8s
-func Schedule(ctx context.Context, j types.Job, nodes []types.NodeSnapshot, d Deps) (types.Decision, types.DecisionTrace, error) {
+// ScoreNodes computes cost per candidate and returns scores and per-node traces.
+// It applies the same feasibility gates and normalisation used by Schedule.
+func ScoreNodes(ctx context.Context, j types.Job, nodes []types.NodeSnapshot, d Deps) (map[string]float64, map[string]types.DecisionTrace) {
+    scores := make(map[string]float64)
+    traces := make(map[string]types.DecisionTrace)
     now := time.Now
-    if d.Now != nil {
-        now = d.Now
-    }
+    if d.Now != nil { now = d.Now }
 
-    // 1) Build candidate set (hard feasibility)
-    cands, rejects := buildCandidateSet(j, nodes, d.Theta.Alpha, d.Theta.EgressCapMB, now())
-
-    // If no candidates, return with rejection
-    if len(cands) == 0 {
-        return types.Decision{}, types.DecisionTrace{
-            JobID: j.ID, RejectReason: joinReasons(rejects),
-            ThetaE: d.Theta.ThetaE, ThetaC: d.Theta.ThetaC, Fallback: true,
-        }, fmt.Errorf("no feasible candidates")
-    }
-
-    // 2) Cost per candidate using site-normalised energy/carbon + forecasts
-    scores := make(map[string]float64, len(cands))
-    traces := make(map[string]types.DecisionTrace, len(cands))
+    cands, _ := buildCandidateSet(j, nodes, d.Theta.Alpha, d.Theta.EgressCapMB, now())
     for _, n := range cands {
         eT, cT, J, usedForecast := evalCost(ctx, j, &n, d)
         scores[n.ID] = J
@@ -48,6 +36,21 @@ func Schedule(ctx context.Context, j types.Job, nodes []types.NodeSnapshot, d De
             ThetaE: d.Theta.ThetaE, ThetaC: d.Theta.ThetaC,
             ForecastUsed: usedForecast,
         }
+    }
+    return scores, traces
+}
+
+// Public entry: SAME for simulation and K8s
+func Schedule(ctx context.Context, j types.Job, nodes []types.NodeSnapshot, d Deps) (types.Decision, types.DecisionTrace, error) {
+    // 1) Score all candidates (includes feasibility)
+    scores, traces := ScoreNodes(ctx, j, nodes, d)
+
+    // If no candidates, return with rejection
+    if len(scores) == 0 {
+        return types.Decision{}, types.DecisionTrace{
+            JobID: j.ID, RejectReason: "no feasible candidates",
+            ThetaE: d.Theta.ThetaE, ThetaC: d.Theta.ThetaC, Fallback: true,
+        }, fmt.Errorf("no feasible candidates")
     }
 
     // 3) Select argmin with deterministic tie-break
@@ -141,4 +144,3 @@ func joinReasons(m map[string]string) string {
     }
     return out
 }
-

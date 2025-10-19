@@ -3,21 +3,30 @@ package main
 import (
     "context"
     "log"
+    "net/http"
+    "os"
     "time"
 
     "github.com/g-uva/KubEnergySched/hermes/pkg/engine"
+    "github.com/g-uva/KubEnergySched/hermes/pkg/providers"
     "github.com/g-uva/KubEnergySched/hermes/pkg/types"
 )
 
 func main() {
     // TODO: load Theta and site factors from ConfigMap/YAML
     theta := types.Theta{ThetaE:0.5, ThetaC:0.5, Horizon:2*time.Hour, Alpha:0.95, EgressCapMB:500, ERef:10, CRef:5}
+    if v := os.Getenv("FORECAST_BASE_URL"); v != "" {
+        theta.ForecastBaseURL = v
+    }
     deps := engine.Deps{
-        CI:   nil, // TODO: HTTP CI provider using theta.ForecastBaseURL
+        CI:   nil,
         Theta: theta,
         Refs:  types.RefScales{ERef: theta.ERef, CRef: theta.CRef},
         Weights: types.Weights{E: theta.ThetaE, C: theta.ThetaC},
         Now:  time.Now,
+    }
+    if theta.ForecastBaseURL != "" {
+        deps.CI = &providers.HTTPCIApi{BaseURL: theta.ForecastBaseURL, Client: &http.Client{Timeout: 3 * time.Second}}
     }
 
     // TODO: snapshot cluster → []NodeSnapshot (freeze state for parity)
