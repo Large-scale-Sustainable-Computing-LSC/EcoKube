@@ -5,7 +5,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/g-uva/KubEnergySched/hermes/pkg/core"
+	"github.com/g-uva/KubEnergySched/kubenergysched/pkg/core"
 )
 
 const (

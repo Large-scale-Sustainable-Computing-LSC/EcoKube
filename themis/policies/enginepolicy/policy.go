@@ -6,10 +6,10 @@ import (
     "os"
     "time"
 
-    "github.com/g-uva/KubEnergySched/hermes/pkg/core"
-    "github.com/g-uva/KubEnergySched/hermes/pkg/engine"
-    "github.com/g-uva/KubEnergySched/hermes/pkg/providers"
-    "github.com/g-uva/KubEnergySched/hermes/pkg/types"
+    "github.com/g-uva/KubEnergySched/kubenergysched/pkg/core"
+    "github.com/g-uva/KubEnergySched/kubenergysched/pkg/engine"
+    "github.com/g-uva/KubEnergySched/kubenergysched/pkg/providers"
+    "github.com/g-uva/KubEnergySched/kubenergysched/pkg/types"
 )
 
 // Config bridges simulator policy to the unified engine.

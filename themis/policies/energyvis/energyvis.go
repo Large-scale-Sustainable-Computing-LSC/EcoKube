@@ -2,7 +2,7 @@ package energyvis
 
 import (
 	"context"
-	api "github.com/g-uva/KubEnergySched/hermes/pkg/core"
+	api "github.com/g-uva/KubEnergySched/kubenergysched/pkg/core"
 )
 
 type EnergyVis struct{ W struct{ Power, SCI, Util float64 } }

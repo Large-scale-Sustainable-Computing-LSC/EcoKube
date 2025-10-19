@@ -12,14 +12,14 @@ import (
     "strings"
     "time"
 
-    "github.com/g-uva/KubEnergySched/hermes/pkg/core"
-    "github.com/g-uva/KubEnergySched/hermes/pkg/loader"
-    "github.com/g-uva/KubEnergySched/hermes/pkg/metrics"
-    "github.com/g-uva/KubEnergySched/hermes/pkg/types"
-    "github.com/g-uva/KubEnergySched/hermes/themis/policies/enginepolicy"
-    "github.com/g-uva/KubEnergySched/hermes/themis/policies/carbonscaler"
-    "github.com/g-uva/KubEnergySched/hermes/themis/policies/k8sched"
-    "github.com/g-uva/KubEnergySched/hermes/themis/policies/themisbase"
+    "github.com/g-uva/KubEnergySched/kubenergysched/pkg/core"
+    "github.com/g-uva/KubEnergySched/kubenergysched/pkg/loader"
+    "github.com/g-uva/KubEnergySched/kubenergysched/pkg/metrics"
+    "github.com/g-uva/KubEnergySched/kubenergysched/pkg/types"
+    "github.com/g-uva/KubEnergySched/kubenergysched/themis/policies/enginepolicy"
+    "github.com/g-uva/KubEnergySched/kubenergysched/themis/policies/carbonscaler"
+    "github.com/g-uva/KubEnergySched/kubenergysched/themis/policies/k8sched"
+    "github.com/g-uva/KubEnergySched/kubenergysched/themis/policies/themisbase"
 )
 
 // cross-product: (policy × ci_weight × batch_size)

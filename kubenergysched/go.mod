@@ -1,4 +1,4 @@
-module github.com/g-uva/KubEnergySched/hermes
+module github.com/g-uva/KubEnergySched/kubenergysched
 
 go 1.24.4
 

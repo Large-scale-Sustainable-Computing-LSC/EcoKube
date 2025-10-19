@@ -7,9 +7,9 @@ import (
     "os"
     "time"
 
-    "github.com/g-uva/KubEnergySched/hermes/pkg/engine"
-    "github.com/g-uva/KubEnergySched/hermes/pkg/providers"
-    "github.com/g-uva/KubEnergySched/hermes/pkg/types"
+    "github.com/g-uva/KubEnergySched/kubenergysched/pkg/engine"
+    "github.com/g-uva/KubEnergySched/kubenergysched/pkg/providers"
+    "github.com/g-uva/KubEnergySched/kubenergysched/pkg/types"
 )
 
 // demo_core shows a minimal end-to-end call to the unified engine.

@@ -16,6 +16,6 @@ go run ./cmd/run_sim.go \
 
 # To initialise the repository (from root)
 # cd hermes
-# go mod init github.com/g-uva/KubEnergySched/hermes
+# go mod init github.com/g-uva/KubEnergySched/kubenergysched
 # go mod init
 # 
