@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/g-uva/KubEnergySched/hermes/pkg/forecast"
-	"github.com/g-uva/KubEnergySched/hermes/pkg/metrics"
 )
 
 type Scores map[string]float64 // Lower is better.
@@ -128,9 +127,9 @@ func evalCost(j Job, n *SimulatedNode, T time.Duration, refs RefScales, theta We
 			carbonFloat = samples[0]
 		}
 	}
-	energyKWh := metrics.EstimateEnergyJ(j.EstimatedDuration, n.Labels, T, siteK)
-	carbonKg := metrics.EstimateCarbonKg(energyKWh, sitePUE, carbonFloat)
-	eT, cT = metrics.Normalise(energyKWh, carbonKg, refs.ERef, refs.CRef)
+	energyKWh := estimateEnergyKWh(j.EstimatedDuration, n.Labels, T, siteK)
+	carbonKg := estimateCarbonKg(energyKWh, sitePUE, carbonFloat)
+	eT, cT = normaliseCost(energyKWh, carbonKg, refs)
 	J = theta.E*eT + theta.C*cT
 	return
 }
