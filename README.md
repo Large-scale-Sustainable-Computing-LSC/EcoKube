@@ -9,13 +9,14 @@ Hermes is the sustainability-aware scheduler wrapper inside THEMISTACK. The goal
 - (Optional): clean unused files + Docker testbed configs.
 
 ### Testbed Architecture (WIP)
-![Testbed Architecture](docs/assets/testbed_architecture.png)
+![Testbed Architecture](assets/testbed_architecture.png)
 
 ### Repository layout
 ```txt
 themistack/
-├─ hermes/                      # Scheduler wrapper (Go module)
+├─ KubEnergySched/              # Scheduler wrapper (Go module)
 │  ├─ cmd/run_sim.go
+│  ├─ cmd/gen_data.go           # CSV/JSON data generator (nodes/sites/workloads)
 │  ├─ controller/               # K8s controller (Go module)
 │  ├─ pkg/                      # Simulation core + shared structs
 │  ├─ config/                   # CSV inputs (nodes/sites/workloads)
@@ -38,6 +39,20 @@ themistack/
    ├─ assets/                   # Architecture diagrams
    └─ thesis-overleaf/          # Thesis sources
 ```
+
+### Generate CSV/JSON
+- Recommended one‑liner (generates nodes.csv, workloads.csv, sites.csv, and sites.json):
+  - `cd hermes && go run ./cmd/gen_data.go --nodes-out=config/nodes.csv --workloads-out=config/workloads.csv --sites-csv-out=config/sites.csv --sites-json-out=config/sites.json --seed=42`
+
+- Individual outputs, if needed:
+  - Nodes CSV: `cd hermes && go run ./cmd/gen_data.go --nodes-out=config/nodes.csv`
+  - Workloads CSV: `cd hermes && go run ./cmd/gen_data.go --workloads-out=config/workloads.csv --seed=42`
+  - Sites CSV (simulator): `cd hermes && go run ./cmd/gen_data.go --sites-csv-out=config/sites.csv`
+  - Sites JSON (controller/helm): `cd hermes && go run ./cmd/gen_data.go --sites-json-out=sites.json`
+
+Notes
+- Simulator expects `config/nodes.csv`, `config/workloads.csv`, `config/sites.csv`.
+- K8s controller expects a `sites.json` ConfigMap (see `k8s/helm/charts/cluster_testbed/templates/site-config-configmap.yaml`).
 
 <!-- - `scheduler/cluster.go`: Defines the Cluster interface and `SimulatedCluster` struct.
 - `scheduler/strategy.go`: Implements various scheduling strategies (FCFS, RoundRobin, MinMin, MaxMin, EnergyAware).
