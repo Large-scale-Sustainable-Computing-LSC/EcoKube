@@ -9,7 +9,10 @@ import (
 )
 
 func LoadSitesFromCSV(path string) map[string]*core.Site {
-	f, err := os.Open(path); if err != nil { panic(err) }
+	f, err := os.Open(path)
+	if err != nil {
+		panic(err)
+	}
 	defer f.Close()
 
 	r := csv.NewReader(f)
@@ -17,12 +20,23 @@ func LoadSitesFromCSV(path string) map[string]*core.Site {
 	sites := map[string]*core.Site{}
 
 	for i, row := range rows {
-		if i == 0 { continue }
+		if i == 0 {
+			continue
+		}
+		if len(row) < 4 {
+			continue
+		}
 		id := row[0]
 		pue, _ := strconv.ParseFloat(row[1], 64)
-		k, _ := strconv.ParseFloat(row[2], 64) 
+		k, _ := strconv.ParseFloat(row[2], 64)
 		region := row[3]
-		sites[id] = &core.Site{ID: id, PUE: pue, K: k, CIRegion: region}
+		site := &core.Site{ID: id, PUE: pue, K: k, CIRegion: region}
+		if len(row) >= 5 {
+			if ci, err := strconv.ParseFloat(row[4], 64); err == nil {
+				site.CarbonIntensity = ci
+			}
+		}
+		sites[id] = site
 	}
 	return sites
 }
