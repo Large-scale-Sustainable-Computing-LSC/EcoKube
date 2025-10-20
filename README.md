@@ -54,3 +54,91 @@ Notes
 - Simulator expects `config/nodes.csv`, `config/workloads.csv`, `config/sites.csv`.
 - K8s controller expects a `sites.json` ConfigMap (see `k8s/helm/charts/cluster_testbed/templates/site-config-configmap.yaml`).
 
+
+### End-to-End Controller Replay
+Follow this quickstart to reset the cluster, (re)deploy the controller, replay the workload batch, and export the scheduling trace. Commands assume the repo root on a kind-based dev cluster; adapt node names or registry references as needed.
+
+#### 1. Build and load controller images
+```bash
+docker build -t goncaloferreirauva/ciw-controller:latest -f kubenergysched/controller/Dockerfile kubenergysched
+docker build --target controller-debug -t goncaloferreirauva/ciw-controller:debug -f kubenergysched/controller/Dockerfile kubenergysched
+kind load docker-image goncaloferreirauva/ciw-controller:latest --name themis
+kind load docker-image goncaloferreirauva/ciw-controller:debug --name themis
+```
+*(Push to Docker Hub only when you need the image outside the local kind cluster.)*
+
+#### 2. Build and load the workload replayer
+```bash
+docker build -t goncaloferreirauva/workload-replayer:latest -f kubenergysched/workloads/Dockerfile kubenergysched/workloads
+kind load docker-image goncaloferreirauva/workload-replayer:latest --name themis
+```
+
+#### 3. Reset namespace state and config
+```bash
+kubectl delete namespace workloads --ignore-not-found
+kubectl create namespace workloads
+kubectl -n workloads create configmap ciw-sites --from-file=sites.json=kubenergysched/config/sites.json
+kubectl -n workloads create configmap workloads-csv --from-file=workloads.csv=kubenergysched/workloads/workloads.csv
+```
+
+#### 4. Label nodes for the controller
+The sample workloads expect site `B`. Ensure at least one node carries that label.
+```bash
+kubectl label node themis-control-plane site=B --overwrite
+kubectl get nodes -L site
+```
+
+#### 5. Deploy / restart the controller
+```bash
+kubectl apply -f k8s/manifests/ciw-controller.yaml
+kubectl -n workloads rollout status deploy/ciw-controller
+# switch to the debug-friendly image so we can exec into the pod
+kubectl -n workloads set image deploy/ciw-controller controller=goncaloferreirauva/ciw-controller:debug
+kubectl -n workloads rollout status deploy/ciw-controller
+```
+
+#### 6. Start the workload replay
+```bash
+kubectl -n workloads apply -f k8s/replay_workloads.yaml
+kubectl -n workloads get jobs,pods -l ciw/eligible=true
+```
+
+#### 7. Watch progress & export decisions
+Gather the scheduling trace once jobs start flowing. The debug image has a shell, so `kubectl exec` can stream the log directly.
+```bash
+CTRL=$(kubectl -n workloads get pod -l app=ciw-controller -o jsonpath='{.items[0].metadata.name}')
+kubectl -n workloads exec "$CTRL" -- cat /var/log/ciw/decisions.jsonl > decisions.jsonl
+jq -r '{job_id,node,site,e_norm,c_norm,cost,forecast_used,fallback} | [.job_id,.node,.site,.e_norm,.c_norm,.cost,.forecast_used,.fallback] | @csv' decisions.jsonl > decisions.csv
+```
+
+#### 8. Stop / cleanup between replays
+```bash
+kubectl -n workloads delete job workloads-replayer --ignore-not-found
+kubectl -n workloads delete jobs -l ciw/eligible=true --ignore-not-found
+kubectl -n workloads delete pods -l ciw/eligible=true --ignore-not-found
+```
+
+#### 9. Tear everything down
+```bash
+kubectl delete -f k8s/manifests/ciw-controller.yaml --ignore-not-found
+kubectl delete namespace workloads --ignore-not-found
+kubectl label node themis-control-plane site- --overwrite || true
+```
+
+Notes
+- Switch the deployment back to the minimal image once finished exporting traces: `kubectl -n workloads set image deploy/ciw-controller controller=goncaloferreirauva/ciw-controller:latest`.
+- If replayed Pods remain Pending, inspect resource usage versus node capacity: `kubectl -n workloads describe pod <pod>` and verify the node label matches `config/sites.json`.
+
+
+### Delete jobs from previous runs
+```bash
+
+kubectl -n workloads delete job workloads-replayer --ignore-not-found
+kubectl -n workloads get jobs -o name | grep '^job.batch/job-' | \
+  xargs -r kubectl -n workloads delete
+kubectl -n workloads delete pods -l ciw/eligible=true --ignore-not-found
+
+# Restart the workloads
+kubectl -n workloads apply -f k8s/replay_workloads.yaml
+kubectl -n workloads logs job/workloads-replayer # to check what's going on inside
+```

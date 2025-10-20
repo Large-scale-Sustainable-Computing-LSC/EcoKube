@@ -1,0 +1,84 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: workloads
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ciw-sa
+  namespace: workloads
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: ciw-controller
+rules:
+  - apiGroups: [""]
+    resources: ["nodes"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "watch", "update", "patch"]
+  - apiGroups: [""]
+    resources: ["pods/binding"]
+    verbs: ["create"]
+  - apiGroups: ["batch"]
+    resources: ["jobs"]
+    verbs: ["get", "list", "watch", "update"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: ciw-controller-binding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: ciw-controller
+subjects:
+  - kind: ServiceAccount
+    name: ciw-sa
+    namespace: workloads
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ciw-controller
+  namespace: workloads
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: ciw-controller }
+  template:
+    metadata:
+      labels: { app: ciw-controller }
+    spec:
+      serviceAccountName: ciw-sa
+      containers:
+        - name: controller
+          image: goncaloferreirauva/ciw-controller:latest
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: WORKLOAD_NS
+              value: "workloads"
+            - name: SITES_PATH
+              value: "/etc/ci-aware/sites.json"
+            - name: TRACE_PATH
+              value: "/var/log/ciw/decisions.jsonl"
+            # - name: FORECAST_BASE_URL
+            #   value: "http://ci-api.workloads.svc.cluster.local"  # optional
+          volumeMounts:
+            - name: sites
+              mountPath: /etc/ci-aware
+              readOnly: true
+            - name: traces
+              mountPath: /var/log/ciw
+      volumes:
+        - name: sites
+          configMap:
+            name: ciw-sites
+            items:
+              - key: sites.json
+                path: sites.json
+        - name: traces
+          emptyDir: {}
