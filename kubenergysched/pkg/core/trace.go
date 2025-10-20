@@ -3,6 +3,11 @@ package core
 import "time"
 
 type DecisionTrace struct {
+	ResultType   string    `json:"result_type"`
+	ResultID     string    `json:"result_id,omitempty"`
+	Scheduler    string    `json:"scheduler,omitempty"`
+	Source       string    `json:"source,omitempty"`
+	RunID        string    `json:"run_id,omitempty"`
 	JobID        string    `json:"job_id"`
 	Site         string    `json:"site"`
 	Node         string    `json:"node"`
@@ -14,7 +19,7 @@ type DecisionTrace struct {
 	ForecastUsed bool      `json:"forecast_used"`
 	Fallback     bool      `json:"fallback"`
 	RejectReason string    `json:"reject_reason,omitempty"`
-	QueuedAt     time.Time `json:"queued_at"`
-	StartedAt    time.Time `json:"started_at"`
-	EndedAt      time.Time `json:"ended_at"`
+	QueuedAt     time.Time `json:"queued_at,omitempty"`
+	StartedAt    time.Time `json:"started_at,omitempty"`
+	EndedAt      time.Time `json:"ended_at,omitempty"`
 }

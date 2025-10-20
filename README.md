@@ -108,7 +108,7 @@ Gather the scheduling trace once jobs start flowing. The debug image has a shell
 ```bash
 CTRL=$(kubectl -n workloads get pod -l app=ciw-controller -o jsonpath='{.items[0].metadata.name}')
 kubectl -n workloads exec "$CTRL" -- cat /var/log/ciw/decisions.jsonl > decisions.jsonl
-jq -r '{job_id,node,site,e_norm,c_norm,cost,forecast_used,fallback} | [.job_id,.node,.site,.e_norm,.c_norm,.cost,.forecast_used,.fallback] | @csv' decisions.jsonl > decisions.csv
+jq -r '{result_id,result_type,scheduler,job_id,node,site,e_norm,c_norm,cost,forecast_used,fallback} | [.result_id,.result_type,.scheduler,.job_id,.node,.site,.e_norm,.c_norm,.cost,.forecast_used,.fallback] | @csv' decisions.jsonl > decisions.csv
 ```
 
 #### 8. Stop / cleanup between replays
@@ -128,6 +128,7 @@ kubectl label node themis-control-plane site- --overwrite || true
 Notes
 - Switch the deployment back to the minimal image once finished exporting traces: `kubectl -n workloads set image deploy/ciw-controller controller=goncaloferreirauva/ciw-controller:latest`.
 - If replayed Pods remain Pending, inspect resource usage versus node capacity: `kubectl -n workloads describe pod <pod>` and verify the node label matches `config/sites.json`.
+- The default kind cluster created for development exposes a single node (`themis-control-plane`). Unless additional nodes are added and labelled (for example with `kind create cluster --config` that declares extra workers), all Kubernetes decisions will target site `B`.
 
 
 ### Delete jobs from previous runs

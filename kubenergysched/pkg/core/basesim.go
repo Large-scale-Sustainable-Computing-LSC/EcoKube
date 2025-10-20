@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"fmt"
 	"math"
 	"sort"
 	"time"
@@ -195,11 +196,17 @@ func (b *BaseSim) recordDecisionTrace(job Job, nodes []SimulatedNode, scores Sco
 	}
 
 	trace := &DecisionTrace{
-		JobID:     job.ID,
-		Node:      selected,
-		QueuedAt:  job.SubmitAt,
-		StartedAt: b.Clock,
-		EndedAt:   b.Clock,
+		JobID:      job.ID,
+		Node:       selected,
+		ResultType: "sim_result",
+		ResultID:   fmt.Sprintf("sim_result_%s", job.ID),
+		Source:     "simulation",
+		QueuedAt:   job.SubmitAt,
+		StartedAt:  b.Clock,
+		EndedAt:    b.Clock,
+	}
+	if b.Policy != nil {
+		trace.Scheduler = b.Policy.Name()
 	}
 	if chosen != nil {
 		trace.Site = chosen.SiteID
@@ -239,6 +246,18 @@ func (b *BaseSim) recordDecisionTrace(job Job, nodes []SimulatedNode, scores Sco
 			}
 			if trace.EndedAt.IsZero() {
 				trace.EndedAt = b.Clock
+			}
+			if trace.ResultType == "" {
+				trace.ResultType = "sim_result"
+			}
+			if trace.ResultID == "" {
+				trace.ResultID = fmt.Sprintf("sim_result_%s", trace.JobID)
+			}
+			if trace.Scheduler == "" && b.Policy != nil {
+				trace.Scheduler = b.Policy.Name()
+			}
+			if trace.Source == "" {
+				trace.Source = "simulation"
 			}
 		}
 	}

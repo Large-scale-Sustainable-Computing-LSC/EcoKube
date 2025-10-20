@@ -5,6 +5,7 @@ import (
 	"context"
 	stdjson "encoding/json"
 	"errors"
+	"fmt"
 	"log"
 	"math"
 	"net/http"
@@ -88,6 +89,7 @@ func main() {
 	ns := env("WORKLOAD_NS", "workloads")
 	tracePath := env("TRACE_PATH", "/var/log/ciw/decisions.jsonl")
 	sitesPath := env("SITES_PATH", "/etc/ci-aware/sites.json")
+	runID := os.Getenv("TRACE_RUN_ID")
 
 	theta := types.Theta{ThetaE: 0.5, ThetaC: 0.5, Horizon: 2 * time.Hour, Alpha: 0.95, EgressCapMB: 500, ERef: 10, CRef: 5}
 	if v := os.Getenv("FORECAST_BASE_URL"); v != "" {
@@ -160,6 +162,17 @@ func main() {
 		}
 
 		dec, trace, err := engine.Schedule(ctx, job, nodes, deps)
+		trace.JobID = defaultString(trace.JobID, job.ID)
+		trace.ResultType = defaultString(trace.ResultType, "kub_result")
+		if trace.ResultID == "" && trace.JobID != "" {
+			trace.ResultID = fmt.Sprintf("%s_%s", trace.ResultType, trace.JobID)
+		}
+		trace.Scheduler = defaultString(trace.Scheduler, "engine")
+		trace.Source = defaultString(trace.Source, "kubernetes")
+		if runID != "" && trace.RunID == "" {
+			trace.RunID = runID
+		}
+
 		if err != nil {
 			log.Printf("schedule: %v (trace=%#v)", err, trace)
 			_ = tw.WriteOne(trace)
@@ -397,4 +410,11 @@ func siteForNode(nodes []types.NodeSnapshot, nodeID string) string {
 		}
 	}
 	return ""
+}
+
+func defaultString(v, fallback string) string {
+	if v != "" {
+		return v
+	}
+	return fallback
 }
