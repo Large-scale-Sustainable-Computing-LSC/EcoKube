@@ -70,7 +70,6 @@ docker build --target controller-debug -t goncaloferreirauva/ciw-controller:debu
 kind load docker-image goncaloferreirauva/ciw-controller:latest --name kes
 kind load docker-image goncaloferreirauva/ciw-controller:debug --name kes
 ```
-*(Push to Docker Hub only when you need the image outside the local kind cluster.)*
 
 #### 2. Build and load the workload replayer
 ```bash
