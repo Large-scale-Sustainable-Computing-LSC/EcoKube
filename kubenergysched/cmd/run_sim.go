@@ -16,10 +16,10 @@ import (
     "github.com/g-uva/KubEnergySched/kubenergysched/pkg/loader"
     "github.com/g-uva/KubEnergySched/kubenergysched/pkg/metrics"
     "github.com/g-uva/KubEnergySched/kubenergysched/pkg/types"
-    "github.com/g-uva/KubEnergySched/kubenergysched/themis/policies/enginepolicy"
-    "github.com/g-uva/KubEnergySched/kubenergysched/themis/policies/carbonscaler"
-    "github.com/g-uva/KubEnergySched/kubenergysched/themis/policies/k8sched"
-    "github.com/g-uva/KubEnergySched/kubenergysched/themis/policies/themisbase"
+    "github.com/g-uva/KubEnergySched/kespolicy/enginepolicy"
+    "github.com/g-uva/KubEnergySched/kespolicy/carbonscaler"
+    "github.com/g-uva/KubEnergySched/kespolicy/k8sched"
+    "github.com/g-uva/KubEnergySched/kespolicy/themisbase"
 )
 
 // cross-product: (policy × ci_weight × batch_size)

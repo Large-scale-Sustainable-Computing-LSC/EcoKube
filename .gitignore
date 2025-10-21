@@ -1,7 +1,6 @@
-
 results/
 results.zip
-hermes/results_*/
+results_*/
 .env
 .DS_Store
 config/
@@ -10,8 +9,9 @@ csv_exports/
 **/powertrace.csv
 logs/
 
-jupyter/*
-!jupyter/analysis.ipynb
+# analysis/
+# jupyter/*
+# !**.ipynb
 
 bin/
 etc/
@@ -24,6 +24,6 @@ fabric_python/share/
 share/
 
 thesis-overleaf/
-analysis/
+
 
 settings.json
