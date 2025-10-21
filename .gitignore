@@ -1,7 +1,6 @@
-
 results/
 results.zip
-hermes/results_*/
+results_*/
 .env
 .DS_Store
 config/
@@ -11,7 +10,7 @@ csv_exports/
 logs/
 
 jupyter/*
-!jupyter/analysis.ipynb
+!*.ipynb
 
 bin/
 etc/

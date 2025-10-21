@@ -1,5 +1,5 @@
-### 🔋 THEMISTACK · Hermes
-Hermes is the sustainability-aware scheduler wrapper inside THEMISTACK. The goal is to integrate heterogeneous cloud infrastructures while optimising **sustainability**.
+### 🔋 kesTACK · kubenergysched
+kubenergysched is the sustainability-aware scheduler wrapper inside kesTACK. The goal is to integrate heterogeneous cloud infrastructures while optimising **sustainability**.
 
 - **Fully-managed**: the user (developer/researcher) does not have to worry about the underlying computation and resource allocation.
 - **Kubernetes-based**: Kubernetes is the *de facto* cluster framework used at the core of many cloud infrastructures.
@@ -13,7 +13,7 @@ Hermes is the sustainability-aware scheduler wrapper inside THEMISTACK. The goal
 
 ### Repository layout
 ```txt
-themistack/
+kestack/
 ├─ KubEnergySched/              # Scheduler wrapper (Go module)
 │  ├─ cmd/run_sim.go
 │  ├─ cmd/gen_data.go           # CSV/JSON data generator (nodes/sites/workloads)
@@ -23,7 +23,7 @@ themistack/
 │  ├─ scripts/                  # Helper scripts
 │  ├─ results/                  # Simulation outputs
 │  └─ workloads/                # Generated workloads
-├─ themis/
+├─ kes/
 │  └─ policies/                 # Sustainability policies (former models)
 ├─ sim/
 │  └─ powertrace/               # Trace tooling and features
@@ -42,17 +42,22 @@ themistack/
 
 ### Generate CSV/JSON
 - Recommended one‑liner (generates nodes.csv, workloads.csv, sites.csv, and sites.json):
-  - `cd hermes && go run ./cmd/gen_data.go --nodes-out=config/nodes.csv --workloads-out=config/workloads.csv --sites-csv-out=config/sites.csv --sites-json-out=config/sites.json --seed=42`
+  - `cd kubenergysched && go run ./cmd/gen_data.go --nodes-out=config/nodes.csv --workloads-out=config/workloads.csv --sites-csv-out=config/sites.csv --sites-json-out=config/sites.json --seed=42`
 
 - Individual outputs, if needed:
-  - Nodes CSV: `cd hermes && go run ./cmd/gen_data.go --nodes-out=config/nodes.csv`
-  - Workloads CSV: `cd hermes && go run ./cmd/gen_data.go --workloads-out=config/workloads.csv --seed=42`
-  - Sites CSV (simulator): `cd hermes && go run ./cmd/gen_data.go --sites-csv-out=config/sites.csv`
-  - Sites JSON (controller/helm): `cd hermes && go run ./cmd/gen_data.go --sites-json-out=sites.json`
+  - Nodes CSV: `cd kubenergysched && go run ./cmd/gen_data.go --nodes-out=config/nodes.csv`
+  - Workloads CSV: `cd kubenergysched && go run ./cmd/gen_data.go --workloads-out=config/workloads.csv --seed=42`
+  - Sites CSV (simulator): `cd kubenergysched && go run ./cmd/gen_data.go --sites-csv-out=config/sites.csv`
+  - Sites JSON (controller/helm): `cd kubenergysched && go run ./cmd/gen_data.go --sites-json-out=sites.json`
 
 Notes
 - Simulator expects `config/nodes.csv`, `config/workloads.csv`, `config/sites.csv`.
 - K8s controller expects a `sites.json` ConfigMap (see `k8s/helm/charts/cluster_testbed/templates/site-config-configmap.yaml`).
+
+### Run the Simulator (Kubernetes parity)
+- Default one-liner (mirrors the Kubernetes replay inputs and writes into `results_latest` for the notebooks):
+  - `cd kubenergysched && go run ./cmd/run_sim.go --nodes-csv=config/nodes.csv --wl-csv=config/workloads.csv --ci-weights=0.05 --batch-sizes=32 --outdir=results_latest --trace-jsonl=auto`
+- Adjust `--ci-weights` or `--batch-sizes` only if you want to explore additional configurations beyond the controller defaults.
 
 
 ### End-to-End Controller Replay
@@ -62,15 +67,15 @@ Follow this quickstart to reset the cluster, (re)deploy the controller, replay t
 ```bash
 docker build -t goncaloferreirauva/ciw-controller:latest -f kubenergysched/controller/Dockerfile kubenergysched
 docker build --target controller-debug -t goncaloferreirauva/ciw-controller:debug -f kubenergysched/controller/Dockerfile kubenergysched
-kind load docker-image goncaloferreirauva/ciw-controller:latest --name themis
-kind load docker-image goncaloferreirauva/ciw-controller:debug --name themis
+kind load docker-image goncaloferreirauva/ciw-controller:latest --name kes
+kind load docker-image goncaloferreirauva/ciw-controller:debug --name kes
 ```
 *(Push to Docker Hub only when you need the image outside the local kind cluster.)*
 
 #### 2. Build and load the workload replayer
 ```bash
 docker build -t goncaloferreirauva/workload-replayer:latest -f kubenergysched/workloads/Dockerfile kubenergysched/workloads
-kind load docker-image goncaloferreirauva/workload-replayer:latest --name themis
+kind load docker-image goncaloferreirauva/workload-replayer:latest --name kes
 ```
 
 #### 3. Reset namespace state and config
@@ -84,7 +89,7 @@ kubectl -n workloads create configmap workloads-csv --from-file=workloads.csv=ku
 #### 4. Label nodes for the controller
 The sample workloads expect site `B`. Ensure at least one node carries that label.
 ```bash
-kubectl label node themis-control-plane site=B --overwrite
+kubectl label node kes-control-plane site=B --overwrite
 kubectl get nodes -L site
 ```
 
@@ -122,13 +127,13 @@ kubectl -n workloads delete pods -l ciw/eligible=true --ignore-not-found
 ```bash
 kubectl delete -f k8s/manifests/ciw-controller.yaml --ignore-not-found
 kubectl delete namespace workloads --ignore-not-found
-kubectl label node themis-control-plane site- --overwrite || true
+kubectl label node kes-control-plane site- --overwrite || true
 ```
 
 Notes
 - Switch the deployment back to the minimal image once finished exporting traces: `kubectl -n workloads set image deploy/ciw-controller controller=goncaloferreirauva/ciw-controller:latest`.
 - If replayed Pods remain Pending, inspect resource usage versus node capacity: `kubectl -n workloads describe pod <pod>` and verify the node label matches `config/sites.json`.
-- The default kind cluster created for development exposes a single node (`themis-control-plane`). Unless additional nodes are added and labelled (for example with `kind create cluster --config` that declares extra workers), all Kubernetes decisions will target site `B`.
+- The default kind cluster created for development exposes a single node (`kes-control-plane`). Unless additional nodes are added and labelled (for example with `kind create cluster --config` that declares extra workers), all Kubernetes decisions will target site `B`.
 
 
 ### Delete jobs from previous runs
