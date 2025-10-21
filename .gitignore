@@ -9,8 +9,9 @@ csv_exports/
 **/powertrace.csv
 logs/
 
-jupyter/*
-!*.ipynb
+# analysis/
+# jupyter/*
+# !**.ipynb
 
 bin/
 etc/
@@ -23,6 +24,6 @@ fabric_python/share/
 share/
 
 thesis-overleaf/
-analysis/
+
 
 settings.json
