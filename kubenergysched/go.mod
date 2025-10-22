@@ -1,9 +1,10 @@
 module github.com/g-uva/KubEnergySched/kubenergysched
 
-go 1.24.4
+go 1.19
 
 require (
 	github.com/prometheus/client_golang v1.17.0
+	github.com/g-uva/KubEnergySched/kespolicy v0.0.0
 	gopkg.in/yaml.v3 v3.0.1
 )
 
@@ -19,3 +20,5 @@ require (
 	golang.org/x/sys v0.11.0 // indirect
 	google.golang.org/protobuf v1.31.0 // indirect
 )
+
+replace github.com/g-uva/KubEnergySched/kespolicy => ../kespolicy

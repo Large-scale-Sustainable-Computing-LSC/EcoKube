@@ -32,7 +32,7 @@ type BaseSim struct {
 }
 
 func (b *BaseSim) Init(nodes []*SimulatedNode, pol Policy) {
-	b.Clock = time.Now()
+	b.Clock = time.Time{}
 	b.Nodes = nodes
 	b.Batch = 1
 	b.Pending = nil

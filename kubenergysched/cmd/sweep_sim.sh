@@ -3,10 +3,10 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
-HERMES_DIR="${REPO_ROOT}/hermes"
+MODULE_DIR="${REPO_ROOT}/kubenergysched"
 
-if [[ ! -d "${HERMES_DIR}" ]]; then
-  echo "error: expected hermes module at ${HERMES_DIR}" >&2
+if [[ ! -d "${MODULE_DIR}" ]]; then
+  echo "error: expected kubenergysched module at ${MODULE_DIR}" >&2
   exit 1
 fi
 
@@ -41,25 +41,37 @@ if [[ -n "${SWEEP_EXTRA_ARGS:-}" ]]; then
   read -r -a EXTRA_ARGS <<< "${SWEEP_EXTRA_ARGS}"
 fi
 
-OUT_PREFIX="${SWEEP_OUT_PREFIX:-${REPO_ROOT}/analysis/results}"
-mkdir -p "${OUT_PREFIX}"
-
 timestamp="$(date +%Y%m%d_%H%M%S)"
-RUN_BASE="${OUT_PREFIX}/sweep_${timestamp}"
-mkdir -p "${RUN_BASE}"
+OUT_PREFIX_RAW="${SWEEP_OUT_PREFIX:-results}"
+OUT_PREFIX_TRIM="${OUT_PREFIX_RAW%/}"
+if [[ "${OUT_PREFIX_TRIM}" = /* ]]; then
+  OUT_PREFIX_ABS="${OUT_PREFIX_TRIM}"
+  RUN_BASE_ARG="${OUT_PREFIX_ABS}/results_${timestamp}"
+else
+  OUT_PREFIX_REL="${OUT_PREFIX_TRIM}"
+  OUT_PREFIX_ABS="${MODULE_DIR}/${OUT_PREFIX_REL}"
+  RUN_BASE_ARG="${OUT_PREFIX_REL}/results_${timestamp}"
+fi
+RUN_BASE_ABS="${OUT_PREFIX_ABS}/results_${timestamp}"
+mkdir -p "${RUN_BASE_ABS}"
 
-echo "Sweep output root: ${RUN_BASE}"
+echo "Sweep output root: ${RUN_BASE_ABS}"
 
 for ci in "${CI_WEIGHTS[@]}"; do
   for bs in "${BATCH_SIZES[@]}"; do
     ci_slug="${ci//./p}"
     ci_slug="${ci_slug//-/m}"
-    run_dir="${RUN_BASE}/ci_${ci_slug}_bs_${bs}"
-    mkdir -p "${run_dir}"
+    run_dir_abs="${RUN_BASE_ABS}/ci_${ci_slug}_bs_${bs}"
+    mkdir -p "${run_dir_abs}"
+    if [[ "${OUT_PREFIX_TRIM}" = /* ]]; then
+      run_dir_arg="${run_dir_abs}"
+      trace_file_arg="${run_dir_abs}/decisions.jsonl"
+    else
+      run_dir_arg="${RUN_BASE_ARG}/ci_${ci_slug}_bs_${bs}"
+      trace_file_arg="${run_dir_arg}/decisions.jsonl"
+    fi
 
-    trace_file="${run_dir}/decisions.jsonl"
-
-    cat <<EOF > "${run_dir}/params.json"
+    cat <<EOF > "${run_dir_abs}/params.json"
 {
   "ci_weight": "${ci}",
   "batch_size": "${bs}",
@@ -81,8 +93,8 @@ EOF
       --alpha-mass="${ALPHA_MASS}"
       --lookahead-min="${LOOKAHEAD_MIN}"
       --dur-scale="${DUR_SCALE}"
-      --outdir="${run_dir}"
-      --trace-jsonl="${trace_file}"
+      --outdir="${run_dir_arg}"
+      --trace-jsonl="${trace_file_arg}"
     )
 
     if [[ -n "${DURATIONS}" ]]; then
@@ -94,10 +106,10 @@ EOF
 
     echo "→ ci_weight=${ci} batch_size=${bs}"
     (
-      cd "${HERMES_DIR}"
+      cd "${MODULE_DIR}"
       "${cmd[@]}"
     )
   done
 done
 
-echo "Sweep finished. Results in ${RUN_BASE}"
+echo "Sweep finished. Results in ${RUN_BASE_ABS}"

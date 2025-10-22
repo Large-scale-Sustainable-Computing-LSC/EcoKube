@@ -1,11 +1,12 @@
 FROM golang:1.24-alpine AS build
-WORKDIR /src
-COPY go.mod ./
-COPY go.sum ./
+WORKDIR /kubenergysched
+COPY kubenergysched/go.mod ./
+COPY kubenergysched/go.sum ./
+COPY kespolicy /kespolicy
 RUN go mod download
-COPY . .
-WORKDIR /src/controller
-RUN CGO_ENABLED=0 go build -o /out/ci-aware-controller .
+COPY kubenergysched/ .
+WORKDIR /kubenergysched/controller
+RUN mkdir -p /out && CGO_ENABLED=0 go build -o /out/ci-aware-controller .
 
 FROM python:3.12-slim AS controller-debug
 WORKDIR /

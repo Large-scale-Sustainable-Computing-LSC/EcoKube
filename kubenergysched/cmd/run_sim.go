@@ -304,7 +304,6 @@ func main() {
 						sim := &core.BaseSim{}
 						cfg := hetpolicy.DefaultConfig()
 						cfg.Alpha = ciW
-						cfg.Now = func() time.Time { return sim.Clock }
 						pol := &hetpolicy.Policy{
 							Mode: mode,
 							Cfg:  cfg,

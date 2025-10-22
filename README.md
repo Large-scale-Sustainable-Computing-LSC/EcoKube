@@ -56,8 +56,10 @@ Notes
 
 ### Run the Simulator (Kubernetes parity)
 - Default one-liner (mirrors the Kubernetes replay inputs and writes into `results_latest` for the notebooks):
-  - `cd kubenergysched && go run ./cmd/run_sim.go --nodes-csv=config/nodes.csv --wl-csv=config/workloads.csv --ci-weights=0.05 --batch-sizes=32 --outdir=results_latest --trace-jsonl=auto`
+  - `cd kubenergysched && go run ./cmd/run_sim.go --nodes-csv=config/nodes.csv --wl-csv=config/workloads.csv --ci-weights=0.05 --batch-sizes=32 --outdir=results/results_$(date +%Y%m%d_%H%M%S) --trace-jsonl=auto`
 - Adjust `--ci-weights` or `--batch-sizes` only if you want to explore additional configurations beyond the controller defaults.
+- Run the heterogeneity-aware variants alongside the default schedulers (writes into a dated directory):
+  - `cd kubenergysched && go run ./cmd/run_sim.go --nodes-csv=config/nodes.csv --wl-csv=config/workloads.csv --ci-weights=0.05 --batch-sizes=32 --het-modes=het-weighted-sum,het-epsilon-constraint,het-greedy-normalised --outdir=results/results_het_$(date +%Y%m%d_%H%M%S) --trace-jsonl=auto`
 
 
 ### End-to-End Controller Replay
@@ -65,8 +67,8 @@ Follow this quickstart to reset the cluster, (re)deploy the controller, replay t
 
 #### 1. Build and load controller images
 ```bash
-docker build -t goncaloferreirauva/ciw-controller:latest -f kubenergysched/controller/Dockerfile kubenergysched
-docker build --target controller-debug -t goncaloferreirauva/ciw-controller:debug -f kubenergysched/controller/Dockerfile kubenergysched
+docker build -t goncaloferreirauva/ciw-controller:latest -f kubenergysched/controller/Dockerfile .
+docker build --target controller-debug -t goncaloferreirauva/ciw-controller:debug -f kubenergysched/controller/Dockerfile .
 kind load docker-image goncaloferreirauva/ciw-controller:latest --name kes
 kind load docker-image goncaloferreirauva/ciw-controller:debug --name kes
 ```
@@ -83,6 +85,18 @@ kubectl delete namespace workloads --ignore-not-found
 kubectl create namespace workloads
 kubectl -n workloads create configmap ciw-sites --from-file=sites.json=kubenergysched/config/sites.json
 kubectl -n workloads create configmap workloads-csv --from-file=workloads.csv=kubenergysched/workloads/workloads.csv
+```
+
+### 3b. Delete jobs from previous runs (if we are starting on this point)
+```bash
+kubectl -n workloads delete job workloads-replayer --ignore-not-found
+kubectl -n workloads get jobs -o name | grep '^job.batch/job-' | \
+  xargs -r kubectl -n workloads delete
+kubectl -n workloads delete pods -l ciw/eligible=true --ignore-not-found
+
+# Restart the workloads
+# kubectl -n workloads apply -f k8s/replay_workloads.yaml
+# kubectl -n workloads logs job/workloads-replayer # to check what's going on inside
 ```
 
 #### 4. Label nodes for the controller
@@ -111,8 +125,8 @@ kubectl -n workloads get jobs,pods -l ciw/eligible=true
 Gather the scheduling trace once jobs start flowing. The debug image has a shell, so `kubectl exec` can stream the log directly.
 ```bash
 CTRL=$(kubectl -n workloads get pod -l app=ciw-controller -o jsonpath='{.items[0].metadata.name}')
-kubectl -n workloads exec "$CTRL" -- cat /var/log/ciw/decisions.jsonl > decisions.jsonl
-jq -r '{result_id,result_type,scheduler,job_id,node,site,e_norm,c_norm,cost,forecast_used,fallback} | [.result_id,.result_type,.scheduler,.job_id,.node,.site,.e_norm,.c_norm,.cost,.forecast_used,.fallback] | @csv' decisions.jsonl > decisions.csv
+kubectl -n workloads exec "$CTRL" -- cat /var/log/ciw/decisions.jsonl > k8s/results/decisions.jsonl
+jq -r '{result_id,result_type,scheduler,job_id,node,site,e_norm,c_norm,cost,forecast_used,fallback} | [.result_id,.result_type,.scheduler,.job_id,.node,.site,.e_norm,.c_norm,.cost,.forecast_used,.fallback] | @csv' decisions.jsonl > k8s/results/decisions.csv
 ```
 
 #### 8. Stop / cleanup between replays
@@ -134,16 +148,3 @@ Notes
 - If replayed Pods remain Pending, inspect resource usage versus node capacity: `kubectl -n workloads describe pod <pod>` and verify the node label matches `config/sites.json`.
 - The default kind cluster created for development exposes a single node (`kes-control-plane`). Unless additional nodes are added and labelled (for example with `kind create cluster --config` that declares extra workers), all Kubernetes decisions will target site `B`.
 
-
-### Delete jobs from previous runs
-```bash
-
-kubectl -n workloads delete job workloads-replayer --ignore-not-found
-kubectl -n workloads get jobs -o name | grep '^job.batch/job-' | \
-  xargs -r kubectl -n workloads delete
-kubectl -n workloads delete pods -l ciw/eligible=true --ignore-not-found
-
-# Restart the workloads
-kubectl -n workloads apply -f k8s/replay_workloads.yaml
-kubectl -n workloads logs job/workloads-replayer # to check what's going on inside
-```
