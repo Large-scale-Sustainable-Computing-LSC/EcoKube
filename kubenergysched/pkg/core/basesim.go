@@ -88,19 +88,43 @@ func (b *BaseSim) Run() {
 				continue
 			}
 
-			start := b.Clock
+			siteID := ""
+			if n.Site != nil {
+				siteID = n.Site.ID
+			} else if n.SiteID != "" {
+				siteID = n.SiteID
+			}
+
+			transferDelay := time.Duration(0)
+			runtimePenalty := time.Duration(0)
+			if w.Labels != nil {
+				if preferred := w.Labels["preferred_site"]; preferred != "" {
+					if siteID != "" && siteID != preferred {
+						transferDelay = 15 * time.Minute
+						runtimePenalty = 10 * time.Minute
+					}
+				}
+			}
+
+			start := b.Clock.Add(transferDelay)
+
+			work := w
+			if runtimePenalty > 0 {
+				work.Duration += runtimePenalty
+			}
 
 			var ci float64
 			if b.CICalc != nil {
-				ci = b.CICalc(n, w, start)
+				ci = b.CICalc(n, work, start)
 			}
 
-			n.Reserve(w, start)
-			end := start.Add(w.Duration)
+			n.Reserve(work, start)
+			end := start.Add(work.Duration)
 
 			b.LogsBuf = append(b.LogsBuf, LogEntry{
 				JobID:  w.ID,
 				Node:   n.Name,
+				Site:   siteID,
 				Submit: w.SubmitTime,
 				Start:  start,
 				End:    end,

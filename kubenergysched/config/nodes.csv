@@ -1,0 +1,5 @@
+name,cpu,mem,ci_profile,site,peak_power_w
+site-a-1,32,64,static:520,site-a,520
+site-a-2,32,64,static:540,site-a,520
+site-b-1,24,48,static:150,site-b,420
+site-b-2,24,48,static:140,site-b,420

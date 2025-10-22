@@ -73,19 +73,19 @@ func TestEvalCostMonotonic(t *testing.T) {
 	weights := Weights{E: 0.5, C: 0.5}
 	baseNode := &SimulatedNode{Labels: map[string]string{"peak_power_w": "200"}, Site: &Site{PUE: 1.1, K: 1, CIRegion: "x", CarbonIntensity: 200}}
 
-	e1, c1, cost1 := evalCost(job, baseNode, time.Hour, refs, weights, time.Now(), stubProvider{})
+	e1, c1, cost1 := evalCost(job, baseNode, time.Hour, refs, weights, time.Now(), nil)
 	if e1 <= 0 || c1 <= 0 {
 		t.Fatalf("expected positive normalised metrics, got %f %f", e1, c1)
 	}
 
 	higherPUE := &SimulatedNode{Labels: map[string]string{"peak_power_w": "200"}, Site: &Site{PUE: 1.3, K: 1, CIRegion: "x", CarbonIntensity: 200}}
-	_, _, costPUE := evalCost(job, higherPUE, time.Hour, refs, weights, time.Now(), stubProvider{})
+	_, _, costPUE := evalCost(job, higherPUE, time.Hour, refs, weights, time.Now(), nil)
 	if costPUE <= cost1 {
 		t.Fatalf("expected higher cost with larger PUE, got %f <= %f", costPUE, cost1)
 	}
 
 	higherCI := &SimulatedNode{Labels: map[string]string{"peak_power_w": "200"}, Site: &Site{PUE: 1.1, K: 1, CIRegion: "x", CarbonIntensity: 400}}
-	_, _, costCI := evalCost(job, higherCI, time.Hour, refs, weights, time.Now(), stubProvider{})
+	_, _, costCI := evalCost(job, higherCI, time.Hour, refs, weights, time.Now(), nil)
 	if costCI <= cost1 {
 		t.Fatalf("expected higher cost with larger CI, got %f <= %f", costCI, cost1)
 	}
