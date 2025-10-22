@@ -4,6 +4,7 @@ results_*/
 .env
 .DS_Store
 config/
+!kubenergysched/config/
 csv_exports/
 **/key.json
 **/powertrace.csv

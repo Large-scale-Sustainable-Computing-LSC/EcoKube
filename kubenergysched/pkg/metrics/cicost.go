@@ -83,7 +83,17 @@ func ComputeCICost(n *core.SimulatedNode, w core.Workload, at time.Time) float64
 		pue = n.Site.PUE
 	}
 
-	return energyKWh * pue * (ci / 1000.0)
+	ciCost := energyKWh * pue * (ci / 1000.0)
+
+	if w.Labels != nil {
+		if preferred := w.Labels["preferred_site"]; preferred != "" {
+			if n.Site != nil && n.Site.ID != "" && n.Site.ID != preferred {
+				ciCost *= 1.25
+			}
+		}
+	}
+
+	return ciCost
 }
 
 func currentCI(n *core.SimulatedNode, at time.Time) float64 {

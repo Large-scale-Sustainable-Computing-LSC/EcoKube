@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"math"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -13,14 +14,11 @@ import (
 	"time"
 
 	"github.com/g-uva/KubEnergySched/kespolicy/carbonscaler"
-	"github.com/g-uva/KubEnergySched/kespolicy/enginepolicy"
 	"github.com/g-uva/KubEnergySched/kespolicy/hetpolicy"
 	"github.com/g-uva/KubEnergySched/kespolicy/k8sched"
-	"github.com/g-uva/KubEnergySched/kespolicy/themisbase"
 	"github.com/g-uva/KubEnergySched/kubenergysched/pkg/core"
 	"github.com/g-uva/KubEnergySched/kubenergysched/pkg/loader"
 	"github.com/g-uva/KubEnergySched/kubenergysched/pkg/metrics"
-	"github.com/g-uva/KubEnergySched/kubenergysched/pkg/types"
 )
 
 // cross-product: (policy × ci_weight × batch_size)
@@ -43,7 +41,7 @@ type SummaryRow struct {
 
 func main() {
 	// ---- CLI flags ----
-	var nodesCSV, wlCSV, outDir string
+	var nodesCSV, wlCSV, sitesCSV, outDir string
 	var ciWeightsFlag, batchSizesFlag string
 	var durationsFlag string
 	var durScale float64
@@ -53,9 +51,10 @@ func main() {
 
 	flag.StringVar(&nodesCSV, "nodes-csv", "config/nodes.csv", "path to nodes CSV")
 	flag.StringVar(&wlCSV, "wl-csv", "config/workloads.csv", "path to workloads CSV")
-	flag.StringVar(&outDir, "outdir", "", "output directory for per-run CSVs and summary (default results_YYYYmmdd_HHmmss)")
-	flag.StringVar(&ciWeightsFlag, "ci-weights", "0.05,0.2,0.8,1.2", "comma-separated base CI weights to sweep")
-	flag.StringVar(&batchSizesFlag, "batch-sizes", "32,128,256", "comma-separated batch sizes to sweep")
+	flag.StringVar(&sitesCSV, "sites-csv", "", "path to sites CSV (defaults to nodes directory/sites.csv)")
+	flag.StringVar(&outDir, "outdir", "", "output directory for per-run CSVs and summary (default kubenergysched/results)")
+	flag.StringVar(&ciWeightsFlag, "ci-weights", "0.4", "comma-separated base CI weights to sweep")
+	flag.StringVar(&batchSizesFlag, "batch-sizes", "64", "comma-separated batch sizes to sweep")
 	flag.StringVar(&durationsFlag, "durations", "", "override job durations (seconds) as comma-separated list; assigned round-robin")
 	flag.Float64Var(&durScale, "dur-scale", 1.0, "multiply all job durations by this factor")
 	flag.Float64Var(&alphaMass, "alpha-mass", 1.0, "adaptive carbon weight multiplier for big jobs (0=off)")
@@ -66,9 +65,14 @@ func main() {
 	flag.Parse()
 
 	if outDir == "" {
-		outDir = fmt.Sprintf("results_%s", time.Now().Format("20060102_150405"))
+		outDir = "results"
 	}
 	must(os.MkdirAll(outDir, 0o755))
+	cleanResults(outDir)
+
+	if sitesCSV == "" {
+		sitesCSV = filepath.Join(filepath.Dir(nodesCSV), "sites.csv")
+	}
 
 	if tracePath == "auto" {
 		tracePath = filepath.Join(outDir, "decisions.jsonl")
@@ -90,6 +94,10 @@ func main() {
 	batchSizes := parseIntSlice(batchSizesFlag)
 	overrideDurations := parseDurationSliceSeconds(durationsFlag)
 	hetModes := parseHetModes(hetModesFlag)
+	if len(hetModes) > 1 {
+		log.Printf("het-modes: limiting to first mode %q for deterministic comparison", hetModes[0])
+		hetModes = hetModes[:1]
+	}
 
 	// ---- Load workloads once and apply duration knobs ----
 	workloads := loader.LoadWorkloadsFromCSV(wlCSV)
@@ -117,52 +125,10 @@ func main() {
 				run  func([]core.Workload) ([]core.LogEntry, float64)
 			}{
 				{
-					name: "engine",
+					name: "kubernetes",
 					run: func(w []core.Workload) ([]core.LogEntry, float64) {
 						nodes := loader.LoadNodesFromCSV(nodesCSV)
-						sites := loader.LoadSitesFromCSV("config/sites.csv")
-						loader.AttachSites(nodes, sites)
-
-						// Map ciW to engine weights: cost = E*eT + C*cT with E=1, C=ciW
-						engTheta := types.Theta{ThetaE: 1.0, ThetaC: ciW, Horizon: 2 * time.Hour, Alpha: 0.95, EgressCapMB: 5e9, ERef: 10, CRef: 5}
-						pol := &enginepolicy.Policy{Cfg: enginepolicy.Config{Theta: engTheta}}
-						sim := &core.BaseSim{}
-						sim.Init(nodes, pol)
-						if tracer != nil {
-							sim.SetTracer(tracer)
-						}
-						sim.SetScheduleBatchSize(bs)
-						// CI costs are internal to enginepolicy; keep metrics for comparability if desired
-						sim.CICalc = func(n *core.SimulatedNode, w core.Workload, at time.Time) float64 {
-							return metrics.ComputeCICost(n, w, at)
-						}
-
-						workloadByID := map[string]core.Workload{}
-						for _, j := range w {
-							workloadByID[j.ID] = j
-							sim.AddWorkload(j)
-						}
-
-						start := time.Now()
-						sim.Run()
-						elapsed := float64(time.Since(start).Milliseconds())
-						logs := sim.Logs()
-						writePerJobCSV(outDir, "engine", ciW, bs, logs)
-						s := summariseRun("engine", ciW, bs, logs, workloadByID)
-						s.ElapsedMs = elapsed
-						s.AlphaMass = alphaMass
-						s.LookaheadMin = lookaheadMin
-						s.DurationScale = durScale
-						s.DurationOverrides = durationsFlag
-						allSummaries = append(allSummaries, s)
-						return logs, elapsed
-					},
-				},
-				{
-					name: "k8",
-					run: func(w []core.Workload) ([]core.LogEntry, float64) {
-						nodes := loader.LoadNodesFromCSV(nodesCSV)
-						sites := loader.LoadSitesFromCSV("config/sites.csv")
+						sites := loader.LoadSitesFromCSV(sitesCSV)
 						loader.AttachSites(nodes, sites)
 
 						pol := &k8sched.Policy{}
@@ -188,9 +154,9 @@ func main() {
 						elapsed := float64(time.Since(start).Milliseconds())
 
 						logs := sim.Logs()
-						writePerJobCSV(outDir, "k8", ciW, bs, logs)
+						writePerJobCSV(outDir, "kubernetes", ciW, bs, logs)
 
-						s := summariseRun("k8", ciW, bs, logs, workloadByID)
+						s := summariseRun("kubernetes", ciW, bs, logs, workloadByID)
 						s.ElapsedMs = elapsed
 						s.AlphaMass = alphaMass
 						s.LookaheadMin = lookaheadMin
@@ -204,7 +170,7 @@ func main() {
 					name: "carbonscaler",
 					run: func(w []core.Workload) ([]core.LogEntry, float64) {
 						nodes := loader.LoadNodesFromCSV(nodesCSV)
-						sites := loader.LoadSitesFromCSV("config/sites.csv")
+						sites := loader.LoadSitesFromCSV(sitesCSV)
 						loader.AttachSites(nodes, sites)
 
 						pol := &carbonscaler.Policy{Cfg: carbonscaler.Config{Lambda: ciW}}
@@ -241,52 +207,6 @@ func main() {
 						return logs, elapsed
 					},
 				},
-				{
-					name: "themis_base",
-					run: func(w []core.Workload) ([]core.LogEntry, float64) {
-						nodes := loader.LoadNodesFromCSV(nodesCSV)
-						sites := loader.LoadSitesFromCSV("config/sites.csv")
-						loader.AttachSites(nodes, sites)
-
-						pol := &themisbase.Policy{
-							W:         themisbase.Weights{Carbon: ciW, Wait: 0.10, Util: 0.05},
-							AlphaMass: alphaMass,
-							Lookahead: time.Duration(lookaheadMin) * time.Minute,
-						}
-
-						sim := &core.BaseSim{}
-						sim.Init(nodes, pol)
-						if tracer != nil {
-							sim.SetTracer(tracer)
-						}
-						sim.SetScheduleBatchSize(bs)
-						sim.CICalc = func(n *core.SimulatedNode, w core.Workload, at time.Time) float64 {
-							return metrics.ComputeCICost(n, w, at)
-						}
-
-						workloadByID := map[string]core.Workload{}
-						for _, j := range w {
-							workloadByID[j.ID] = j
-							sim.AddWorkload(j)
-						}
-
-						start := time.Now()
-						sim.Run()
-						elapsed := float64(time.Since(start).Milliseconds())
-
-						logs := sim.Logs()
-						writePerJobCSV(outDir, "themis_base", ciW, bs, logs)
-
-						s := summariseRun("themis_base", ciW, bs, logs, workloadByID)
-						s.ElapsedMs = elapsed
-						s.AlphaMass = alphaMass
-						s.LookaheadMin = lookaheadMin
-						s.DurationScale = durScale
-						s.DurationOverrides = durationsFlag
-						allSummaries = append(allSummaries, s)
-						return logs, elapsed
-					},
-				},
 			}
 
 			for _, mode := range hetModes {
@@ -295,15 +215,18 @@ func main() {
 					name string
 					run  func([]core.Workload) ([]core.LogEntry, float64)
 				}{
-					name: string(mode),
+					name: "heterogeneous",
 					run: func(w []core.Workload) ([]core.LogEntry, float64) {
 						nodes := loader.LoadNodesFromCSV(nodesCSV)
-						sites := loader.LoadSitesFromCSV("config/sites.csv")
+						sites := loader.LoadSitesFromCSV(sitesCSV)
 						loader.AttachSites(nodes, sites)
 
 						sim := &core.BaseSim{}
 						cfg := hetpolicy.DefaultConfig()
-						cfg.Alpha = ciW
+						cfg.Alpha = math.Max(ciW*0.4, 0.35)
+						cfg.Beta = math.Max(cfg.Beta, 0.35)
+						cfg.Gamma = math.Max(cfg.Gamma, 0.35)
+						cfg.Delta = math.Max(cfg.Delta, 0.6)
 						pol := &hetpolicy.Policy{
 							Mode: mode,
 							Cfg:  cfg,
@@ -328,9 +251,9 @@ func main() {
 						elapsed := float64(time.Since(start).Milliseconds())
 
 						logs := sim.Logs()
-						writePerJobCSV(outDir, string(mode), ciW, bs, logs)
+						writePerJobCSV(outDir, "heterogeneous", ciW, bs, logs)
 
-						s := summariseRun(string(mode), ciW, bs, logs, workloadByID)
+						s := summariseRun("heterogeneous", ciW, bs, logs, workloadByID)
 						s.ElapsedMs = elapsed
 						s.AlphaMass = alphaMass
 						s.LookaheadMin = lookaheadMin
@@ -462,11 +385,12 @@ func writePerJobCSV(outDir, policy string, ciW float64, bs int, logs []core.LogE
 
 	w := csv.NewWriter(f)
 	defer w.Flush()
-	_ = w.Write([]string{"sched", "job_id", "node", "submit", "start", "end", "wait_ms", "ci_cost"})
+	_ = w.Write([]string{"sched", "job_id", "site", "node", "submit", "start", "end", "wait_ms", "ci_cost"})
 	for _, le := range logs {
 		row := []string{
 			policy,
 			le.JobID,
+			le.Site,
 			le.Node,
 			le.Submit.Format(time.RFC3339Nano),
 			le.Start.Format(time.RFC3339Nano),
@@ -521,6 +445,22 @@ func writeSummary(outDir string, rows []SummaryRow) {
 	enc := json.NewEncoder(jf)
 	enc.SetIndent("", "  ")
 	_ = enc.Encode(rows)
+}
+
+func cleanResults(dir string) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return
+	}
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		name := entry.Name()
+		if strings.HasSuffix(name, "_results.csv") || name == "summary.csv" || name == "summary.json" || strings.HasPrefix(name, "decisions") {
+			_ = os.Remove(filepath.Join(dir, name))
+		}
+	}
 }
 
 func summariseRun(policy string, ciW float64, bs int, logs []core.LogEntry, workloadByID map[string]core.Workload) SummaryRow {

@@ -100,6 +100,13 @@ func LoadWorkloadsFromCSV(path string) []core.Workload {
 		if len(rec) >= 6 {
 			tag = rec[5]
 		}
+		var labels map[string]string
+		if len(rec) >= 7 {
+			preferred := strings.TrimSpace(rec[6])
+			if preferred != "" {
+				labels = map[string]string{"preferred_site": preferred}
+			}
+		}
 
 		wls = append(wls, core.Workload{
 			ID:         id,
@@ -108,6 +115,7 @@ func LoadWorkloadsFromCSV(path string) []core.Workload {
 			CPU:        cpuF,
 			Memory:     memF,
 			Tag:        tag,
+			Labels:     labels,
 		})
 	}
 	return wls
