@@ -48,12 +48,16 @@ func DefaultConfig() Config {
 
 // Policy adapts the heterogeneity-aware strategies to the core.Policy contract.
 type Policy struct {
-	Mode Mode
-	Cfg  Config
+	Mode         Mode
+	Cfg          Config
+	OverrideName string
 }
 
 // Name reports the scheduler identifier exposed to the simulator.
 func (p *Policy) Name() string {
+	if p.OverrideName != "" {
+		return p.OverrideName
+	}
 	if p.Mode == "" {
 		return string(ModeWeightedSum)
 	}

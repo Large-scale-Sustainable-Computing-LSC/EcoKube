@@ -6,7 +6,6 @@ import (
 	"flag"
 	"fmt"
 	"log"
-	"math"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -125,8 +124,9 @@ func main() {
 				run  func([]core.Workload) ([]core.LogEntry, float64)
 			}{
 				{
-					name: "kubernetes",
+					name: "k8s",
 					run: func(w []core.Workload) ([]core.LogEntry, float64) {
+						const policyID = "k8s"
 						nodes := loader.LoadNodesFromCSV(nodesCSV)
 						sites := loader.LoadSitesFromCSV(sitesCSV)
 						loader.AttachSites(nodes, sites)
@@ -154,9 +154,9 @@ func main() {
 						elapsed := float64(time.Since(start).Milliseconds())
 
 						logs := sim.Logs()
-						writePerJobCSV(outDir, "kubernetes", ciW, bs, logs)
+						writePerJobCSV(outDir, policyID, ciW, bs, logs)
 
-						s := summariseRun("kubernetes", ciW, bs, logs, workloadByID)
+						s := summariseRun(policyID, ciW, bs, logs, workloadByID)
 						s.ElapsedMs = elapsed
 						s.AlphaMass = alphaMass
 						s.LookaheadMin = lookaheadMin
@@ -169,6 +169,7 @@ func main() {
 				{
 					name: "carbonscaler",
 					run: func(w []core.Workload) ([]core.LogEntry, float64) {
+						const policyID = "carbonscaler"
 						nodes := loader.LoadNodesFromCSV(nodesCSV)
 						sites := loader.LoadSitesFromCSV(sitesCSV)
 						loader.AttachSites(nodes, sites)
@@ -195,9 +196,9 @@ func main() {
 						elapsed := float64(time.Since(start).Milliseconds())
 
 						logs := sim.Logs()
-						writePerJobCSV(outDir, "carbonscaler", ciW, bs, logs)
+						writePerJobCSV(outDir, policyID, ciW, bs, logs)
 
-						s := summariseRun("carbonscaler", ciW, bs, logs, workloadByID)
+						s := summariseRun(policyID, ciW, bs, logs, workloadByID)
 						s.ElapsedMs = elapsed
 						s.AlphaMass = alphaMass
 						s.LookaheadMin = lookaheadMin
@@ -215,21 +216,23 @@ func main() {
 					name string
 					run  func([]core.Workload) ([]core.LogEntry, float64)
 				}{
-					name: "heterogeneous",
+					name: "hetpolicy",
 					run: func(w []core.Workload) ([]core.LogEntry, float64) {
+						const policyID = "hetpolicy"
 						nodes := loader.LoadNodesFromCSV(nodesCSV)
 						sites := loader.LoadSitesFromCSV(sitesCSV)
 						loader.AttachSites(nodes, sites)
 
 						sim := &core.BaseSim{}
 						cfg := hetpolicy.DefaultConfig()
-						cfg.Alpha = math.Max(ciW*0.4, 0.35)
-						cfg.Beta = math.Max(cfg.Beta, 0.35)
-						cfg.Gamma = math.Max(cfg.Gamma, 0.35)
-						cfg.Delta = math.Max(cfg.Delta, 0.6)
+						cfg.Alpha = clampFloat(ciW, 0.2, 0.8)
+						cfg.Beta = 0.4
+						cfg.Gamma = 0.2
+						cfg.Delta = 0.0
 						pol := &hetpolicy.Policy{
-							Mode: mode,
-							Cfg:  cfg,
+							Mode:         mode,
+							Cfg:          cfg,
+							OverrideName: policyID,
 						}
 						sim.Init(nodes, pol)
 						if tracer != nil {
@@ -251,9 +254,9 @@ func main() {
 						elapsed := float64(time.Since(start).Milliseconds())
 
 						logs := sim.Logs()
-						writePerJobCSV(outDir, "heterogeneous", ciW, bs, logs)
+						writePerJobCSV(outDir, policyID, ciW, bs, logs)
 
-						s := summariseRun("heterogeneous", ciW, bs, logs, workloadByID)
+						s := summariseRun(policyID, ciW, bs, logs, workloadByID)
 						s.ElapsedMs = elapsed
 						s.AlphaMass = alphaMass
 						s.LookaheadMin = lookaheadMin
@@ -510,6 +513,16 @@ func summariseRun(policy string, ciW float64, bs int, logs []core.LogEntry, work
 		DurationScale:     0, // filled at caller
 		DurationOverrides: "",
 	}
+}
+
+func clampFloat(v, min, max float64) float64 {
+	if v < min {
+		return min
+	}
+	if v > max {
+		return max
+	}
+	return v
 }
 
 func safeDiv(a, b float64) float64 {

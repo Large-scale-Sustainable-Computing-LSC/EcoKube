@@ -10,7 +10,7 @@ import (
 
 type Policy struct{}
 
-func (p *Policy) Name() string { return "k8" }
+func (p *Policy) Name() string { return "k8s" }
 
 // Score matches the common interface: Job + []SimulatedNode.
 // We adapt Job → Workload so CanAccept() works unchanged.

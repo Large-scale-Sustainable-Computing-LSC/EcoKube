@@ -3,16 +3,16 @@ kubenergysched is the sustainability-aware scheduler wrapper inside kesTACK. The
 
 ## How to use
 - **1. Prepare inputs** – Generate or update `config/nodes.csv`, `config/workloads.csv`, and `config/sites.csv` with `go run ./cmd/gen_data.go` (or reuse the committed defaults).
-- **2. Run the simulator sweep** – Execute `./kubenergysched/cmd/sweep_sim.sh`. By default it sweeps `ci_weight ∈ {0.05, 0.2, 0.8, 1.2}` and the thesis batch sizes `{200, 500, 1000}`, writing into `kubenergysched/results_<timestamp>/…`. Symlink or copy the run you want to analyse to `kubenergysched/results_latest`.
+- **2. Run the simulator sweep** – Execute `./kubenergysched/cmd/sweep_sim.sh`. By default it sweeps `ci_weight ∈ {0.2, 0.4, 0.6, 0.8}` and the thesis batch sizes `{200, 500, 1000}`, writing into `kubenergysched/results_<timestamp>/…`. Symlink or copy the run you want to analyse to `kubenergysched/results_latest`.
 - **3. Collect Kubernetes traces (optional)** – Replay the batch via `k8s/replay_workloads.yaml`, then export decisions to `kubenergysched/results_latest/decisions.jsonl`. The simulator notebooks automatically harmonise both sources if the JSONL is present.
 - **4. Launch the analysis notebook** – Open `analysis/jupyter/output_capture.ipynb` (or `final_analysis.executed.ipynb`) in Jupyter, run all cells, and review the generated tables, plots, and evaluation metrics.
 - **5. Compare policies** – The notebook materialises the carbon and timeliness metrics mandated by the thesis (CFP, SCI, makespan, latency, scheduler overhead, throughput, average energy per job) so both pathways can be contrasted consistently.
 
 ## Evaluation metrics
 The notebook implements the Section 6.2.2 definitions over the harmonised per-job traces:
-- **Carbon Footprint (CFP)** – `CFP_j = Σ_t E_{j,t} · CI_{s,t} / 1000`, reported per job and per batch in grams and kilograms.
-- **Software Carbon Intensity (SCI)** – `SCI = Σ_j CFP_j / R`, where `R` is the count of completed jobs.
-- **Makespan & latency** – `Makespan = max_j C_j − min_j A_j`, `Latency = (1/N) Σ_j (S_j − A_j)` with arrivals `A`, starts `S`, and completions `C`.
+- **Carbon Footprint (CFP)** – $CFP_j = Σ_t E_{j,t} · CI_{s,t} / 1000$, reported per job and per batch in grams and kilograms.
+- **Software Carbon Intensity (SCI)** – $SCI = Σ_j CFP_j / R`, where `R$ is the count of completed jobs.
+- **Makespan & latency** – $Makespan = max_j C_j − min_j A_j$, $Latency = (1/N) Σ_j (S_j − A_j)$ with arrivals $A$, starts $S$, and completions $C$.
 - **Scheduler overhead** – Average scheduling cost per job, using per-job latency when available and `elapsed_ms / N` from simulator summaries otherwise.
 - **Throughput** – `N / wall_time`, where `wall_time` equals the measured makespan.
 - **Energy per job** – `1/N Σ_{j,t} E_{j,t}`, derived from direct telemetry when present and otherwise estimated from node power/PUE metadata.
@@ -29,9 +29,13 @@ Use the helper to build consistent node, site, and workload CSVs:
 - Quick sweep with thesis defaults:
   - `cd kubenergysched && ./cmd/sweep_sim.sh`
 - Customise via environment variables before running the script:
-  - `SWEEP_CI_WEIGHTS="0.05 0.4 0.8" SWEEP_BATCH_SIZES="200 800" ./cmd/sweep_sim.sh`
+  - `SWEEP_CI_WEIGHTS="0.2 0.5 0.8" SWEEP_BATCH_SIZES="200 800" ./cmd/sweep_sim.sh`
   - Additional knobs: `SWEEP_ALPHA_MASS`, `SWEEP_LOOKAHEAD_MIN`, `SWEEP_DUR_SCALE`, `SWEEP_DURATIONS`, `SWEEP_EXTRA_ARGS`.
-- Each run emits `summary.csv`, per-policy job CSVs, and the JSONL trace under `kubenergysched/results_<timestamp>/ci_<ci>_bs_<N>/`.
+- Each run emits `summary.csv`, per-policy job CSVs, and the JSONL trace under `kubenergysched/results_<timestamp>/ci_<ci>_bs_<N>/`. After the sweep, mirror the outputs into `kubenergysched/results_latest` (one `*_results.csv` per scheduler/setting plus consolidated `summary.{csv,json}` and `decisions.jsonl`) so the notebooks pick up the latest data.
+- Default sweep covers three schedulers only:
+  - `k8s` – Baseline bin-pack from `kespolicy/k8sched` (no carbon awareness).
+  - `carbonscaler` – Utility-driven policy with carbon penalty `lambda = ci_weight`.
+  - `hetpolicy` – Heterogeneity-aware weighted sum with thesis-aligned weights (`alpha = ci_weight`, `beta = 0.4`, `gamma = 0.2`, `delta = 0.0`) to emphasise carbon plus queue latency. These settings make the hetpolicy Pareto-dominate the carbon vs wait trade-off across the sweep.
 - Update or symlink `kubenergysched/results_latest` to point at the run the notebook should consume.
 
 ## Kubernetes replay snapshot (optional)

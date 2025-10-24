@@ -19,7 +19,7 @@ CI_WEIGHTS=()
 if [[ -n "${SWEEP_CI_WEIGHTS:-}" ]]; then
   read -r -a CI_WEIGHTS <<< "${SWEEP_CI_WEIGHTS}"
 else
-  CI_WEIGHTS=(0.05 0.2 0.8 1.2)
+  CI_WEIGHTS=(0.2 0.4 0.6 0.8)
 fi
 
 BATCH_SIZES=()
