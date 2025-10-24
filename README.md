@@ -1,150 +1,61 @@
 ### 🔋 kesTACK · kubenergysched
-kubenergysched is the sustainability-aware scheduler wrapper inside kesTACK. The goal is to integrate heterogeneous cloud infrastructures while optimising **sustainability**.
+kubenergysched is the sustainability-aware scheduler wrapper inside kesTACK. The goal is to integrate heterogeneous infrastructures while optimising **sustainability** outcomes across simulation and Kubernetes replay tracks.
 
-- **Fully-managed**: the user (developer/researcher) does not have to worry about the underlying computation and resource allocation.
-- **Kubernetes-based**: Kubernetes is the *de facto* cluster framework used at the core of many cloud infrastructures.
+## How to use
+- **1. Prepare inputs** – Generate or update `config/nodes.csv`, `config/workloads.csv`, and `config/sites.csv` with `go run ./cmd/gen_data.go` (or reuse the committed defaults).
+- **2. Run the simulator sweep** – Execute `./kubenergysched/cmd/sweep_sim.sh`. By default it sweeps `ci_weight ∈ {0.05, 0.2, 0.8, 1.2}` and the thesis batch sizes `{200, 500, 1000}`, writing into `kubenergysched/results_<timestamp>/…`. Symlink or copy the run you want to analyse to `kubenergysched/results_latest`.
+- **3. Collect Kubernetes traces (optional)** – Replay the batch via `k8s/replay_workloads.yaml`, then export decisions to `kubenergysched/results_latest/decisions.jsonl`. The simulator notebooks automatically harmonise both sources if the JSONL is present.
+- **4. Launch the analysis notebook** – Open `analysis/jupyter/output_capture.ipynb` (or `final_analysis.executed.ipynb`) in Jupyter, run all cells, and review the generated tables, plots, and evaluation metrics.
+- **5. Compare policies** – The notebook materialises the carbon and timeliness metrics mandated by the thesis (CFP, SCI, makespan, latency, scheduler overhead, throughput, average energy per job) so both pathways can be contrasted consistently.
 
-### TODO development
-- `scoreOnJobNode` and `SelectSiteAndNode` on `scheduler.go`: it's commented out, needs to be implemented.
-- (Optional): clean unused files + Docker testbed configs.
+## Evaluation metrics
+The notebook implements the Section 6.2.2 definitions over the harmonised per-job traces:
+- **Carbon Footprint (CFP)** – `CFP_j = Σ_t E_{j,t} · CI_{s,t} / 1000`, reported per job and per batch in grams and kilograms.
+- **Software Carbon Intensity (SCI)** – `SCI = Σ_j CFP_j / R`, where `R` is the count of completed jobs.
+- **Makespan & latency** – `Makespan = max_j C_j − min_j A_j`, `Latency = (1/N) Σ_j (S_j − A_j)` with arrivals `A`, starts `S`, and completions `C`.
+- **Scheduler overhead** – Average scheduling cost per job, using per-job latency when available and `elapsed_ms / N` from simulator summaries otherwise.
+- **Throughput** – `N / wall_time`, where `wall_time` equals the measured makespan.
+- **Energy per job** – `1/N Σ_{j,t} E_{j,t}`, derived from direct telemetry when present and otherwise estimated from node power/PUE metadata.
 
-### Testbed Architecture (WIP)
-![Testbed Architecture](assets/testbed_architecture.png)
+Run the notebook after each simulator/Kubernetes export; `evaluation_metrics` in the notebook contains the consolidated table ready for reporting.
 
-### Repository layout
+## Generating simulator inputs
+Use the helper to build consistent node, site, and workload CSVs:
+- `cd kubenergysched && go run ./cmd/gen_data.go --nodes-out=config/nodes.csv --workloads-out=config/workloads.csv --sites-csv-out=config/sites.csv --sites-json-out=config/sites.json --seed=42`
+  - Omitting `--seed` randomises workloads; keep it to reproduce the thesis dataset.
+  - The simulator expects the CSV trio, and the controller consumes the accompanying `sites.json` ConfigMap.
+
+## Simulator sweep
+- Quick sweep with thesis defaults:
+  - `cd kubenergysched && ./cmd/sweep_sim.sh`
+- Customise via environment variables before running the script:
+  - `SWEEP_CI_WEIGHTS="0.05 0.4 0.8" SWEEP_BATCH_SIZES="200 800" ./cmd/sweep_sim.sh`
+  - Additional knobs: `SWEEP_ALPHA_MASS`, `SWEEP_LOOKAHEAD_MIN`, `SWEEP_DUR_SCALE`, `SWEEP_DURATIONS`, `SWEEP_EXTRA_ARGS`.
+- Each run emits `summary.csv`, per-policy job CSVs, and the JSONL trace under `kubenergysched/results_<timestamp>/ci_<ci>_bs_<N>/`.
+- Update or symlink `kubenergysched/results_latest` to point at the run the notebook should consume.
+
+## Kubernetes replay snapshot (optional)
+Once a cluster is available, these steps refresh the trace:
+1. Build and push controller and workload images (`kubenergysched/controller`, `kubenergysched/workloads`).
+2. Reset the `workloads` namespace, load the generated CSVs as ConfigMaps, and label nodes (site `B` by default).
+3. Deploy `k8s/manifests/ciw-controller.yaml`, switch to the debug image if interactive access is needed, and apply `k8s/replay_workloads.yaml`.
+4. When jobs have completed, export the trace:  
+   `kubectl -n workloads exec deploy/ciw-controller -- cat /var/log/ciw/decisions.jsonl > kubenergysched/results_latest/decisions.jsonl`
+5. Rerun the notebook to evaluate Kubernetes against the simulator sweeps.
+
+## Repository layout
 ```txt
 kestack/
-├─ KubEnergySched/              # Scheduler wrapper (Go module)
-│  ├─ cmd/run_sim.go
-│  ├─ cmd/gen_data.go           # CSV/JSON data generator (nodes/sites/workloads)
-│  ├─ controller/               # K8s controller (Go module)
-│  ├─ pkg/                      # Simulation core + shared structs
-│  ├─ config/                   # CSV inputs (nodes/sites/workloads)
-│  ├─ scripts/                  # Helper scripts
-│  ├─ results/                  # Simulation outputs
-│  └─ workloads/                # Generated workloads
-├─ kes/
-│  └─ policies/                 # Sustainability policies (former models)
-├─ sim/
-│  └─ powertrace/               # Trace tooling and features
-├─ k8s/
-│  └─ helm/                     # Helm charts and manifests
-├─ kpis/
-│  └─ forecast_service/         # Forecast / KPI microservice stub
-├─ examples/
-│  ├─ fabric_testbed/           # FABRIC automation scripts and notes
-│  └─ jupyter/                  # Analysis notebooks
-└─ docs/
-   ├─ PLAN.md                   # Project refactor plan
-   ├─ assets/                   # Architecture diagrams
-   └─ thesis-overleaf/          # Thesis sources
+├─ kubenergysched/              # Scheduler wrapper (Go module)
+│  ├─ cmd/                      # Simulator entry-points and helpers
+│  ├─ controller/               # Kubernetes controller
+│  ├─ pkg/                      # Simulation and shared logic
+│  ├─ config/                   # Nodes/sites/workloads CSVs
+│  ├─ results_latest/           # Active simulator + replay artefacts
+│  └─ scripts/                  # Sweep and utility scripts
+├─ analysis/jupyter/            # Thesis notebooks and helpers
+├─ k8s/                         # Manifests and Helm assets
+├─ kespolicy/                   # Policy prototypes
+├─ sim/                         # Power trace tooling
+└─ docs/, assets/, examples/    # Supporting material
 ```
-
-### Generate CSV/JSON
-- Recommended one‑liner (generates nodes.csv, workloads.csv, sites.csv, and sites.json):
-  - `cd kubenergysched && go run ./cmd/gen_data.go --nodes-out=config/nodes.csv --workloads-out=config/workloads.csv --sites-csv-out=config/sites.csv --sites-json-out=config/sites.json --seed=42`
-
-- Individual outputs, if needed:
-  - Nodes CSV: `cd kubenergysched && go run ./cmd/gen_data.go --nodes-out=config/nodes.csv`
-  - Workloads CSV: `cd kubenergysched && go run ./cmd/gen_data.go --workloads-out=config/workloads.csv --seed=42`
-  - Sites CSV (simulator): `cd kubenergysched && go run ./cmd/gen_data.go --sites-csv-out=config/sites.csv`
-  - Sites JSON (controller/helm): `cd kubenergysched && go run ./cmd/gen_data.go --sites-json-out=sites.json`
-
-Notes
-- Simulator expects `config/nodes.csv`, `config/workloads.csv`, `config/sites.csv`.
-- K8s controller expects a `sites.json` ConfigMap (see `k8s/helm/charts/cluster_testbed/templates/site-config-configmap.yaml`).
-
-### Run the Simulator (Kubernetes parity)
-- Default one-liner (mirrors the Kubernetes replay inputs and writes into `results_latest` for the notebooks):
-  - `cd kubenergysched && go run ./cmd/run_sim.go --nodes-csv=config/nodes.csv --wl-csv=config/workloads.csv --ci-weights=0.05 --batch-sizes=32 --outdir=results/results_$(date +%Y%m%d_%H%M%S) --trace-jsonl=auto`
-- Adjust `--ci-weights` or `--batch-sizes` only if you want to explore additional configurations beyond the controller defaults.
-- Run the heterogeneity-aware variants alongside the default schedulers (writes into a dated directory):
-  - `cd kubenergysched && go run ./cmd/run_sim.go --nodes-csv=config/nodes.csv --wl-csv=config/workloads.csv --ci-weights=0.05 --batch-sizes=32 --het-modes=het-weighted-sum,het-epsilon-constraint,het-greedy-normalised --outdir=results/results_het_$(date +%Y%m%d_%H%M%S) --trace-jsonl=auto`
-
-
-### End-to-End Controller Replay
-Follow this quickstart to reset the cluster, (re)deploy the controller, replay the workload batch, and export the scheduling trace. Commands assume the repo root on a kind-based dev cluster; adapt node names or registry references as needed.
-
-#### 1. Build and load controller images
-```bash
-docker build -t goncaloferreirauva/ciw-controller:latest -f kubenergysched/controller/Dockerfile .
-docker build --target controller-debug -t goncaloferreirauva/ciw-controller:debug -f kubenergysched/controller/Dockerfile .
-kind load docker-image goncaloferreirauva/ciw-controller:latest --name kes
-kind load docker-image goncaloferreirauva/ciw-controller:debug --name kes
-```
-
-#### 2. Build and load the workload replayer
-```bash
-docker build -t goncaloferreirauva/workload-replayer:latest -f kubenergysched/workloads/Dockerfile kubenergysched/workloads
-kind load docker-image goncaloferreirauva/workload-replayer:latest --name kes
-```
-
-#### 3. Reset namespace state and config
-```bash
-kubectl delete namespace workloads --ignore-not-found
-kubectl create namespace workloads
-kubectl -n workloads create configmap ciw-sites --from-file=sites.json=kubenergysched/config/sites.json
-kubectl -n workloads create configmap workloads-csv --from-file=workloads.csv=kubenergysched/workloads/workloads.csv
-```
-
-### 3b. Delete jobs from previous runs (if we are starting on this point)
-```bash
-kubectl -n workloads delete job workloads-replayer --ignore-not-found
-kubectl -n workloads get jobs -o name | grep '^job.batch/job-' | \
-  xargs -r kubectl -n workloads delete
-kubectl -n workloads delete pods -l ciw/eligible=true --ignore-not-found
-
-# Restart the workloads
-# kubectl -n workloads apply -f k8s/replay_workloads.yaml
-# kubectl -n workloads logs job/workloads-replayer # to check what's going on inside
-```
-
-#### 4. Label nodes for the controller
-The sample workloads expect site `B`. Ensure at least one node carries that label.
-```bash
-kubectl label node kes-control-plane site=B --overwrite
-kubectl get nodes -L site
-```
-
-#### 5. Deploy / restart the controller
-```bash
-kubectl apply -f k8s/manifests/ciw-controller.yaml
-kubectl -n workloads rollout status deploy/ciw-controller
-# switch to the debug-friendly image so we can exec into the pod
-kubectl -n workloads set image deploy/ciw-controller controller=goncaloferreirauva/ciw-controller:debug
-kubectl -n workloads rollout status deploy/ciw-controller
-```
-
-#### 6. Start the workload replay
-```bash
-kubectl -n workloads apply -f k8s/replay_workloads.yaml
-kubectl -n workloads get jobs,pods -l ciw/eligible=true
-```
-
-#### 7. Watch progress & export decisions
-Gather the scheduling trace once jobs start flowing. The debug image has a shell, so `kubectl exec` can stream the log directly.
-```bash
-CTRL=$(kubectl -n workloads get pod -l app=ciw-controller -o jsonpath='{.items[0].metadata.name}')
-kubectl -n workloads exec "$CTRL" -- cat /var/log/ciw/decisions.jsonl > k8s/results/decisions.jsonl
-jq -r '{result_id,result_type,scheduler,job_id,node,site,e_norm,c_norm,cost,forecast_used,fallback} | [.result_id,.result_type,.scheduler,.job_id,.node,.site,.e_norm,.c_norm,.cost,.forecast_used,.fallback] | @csv' decisions.jsonl > k8s/results/decisions.csv
-```
-
-#### 8. Stop / cleanup between replays
-```bash
-kubectl -n workloads delete job workloads-replayer --ignore-not-found
-kubectl -n workloads delete jobs -l ciw/eligible=true --ignore-not-found
-kubectl -n workloads delete pods -l ciw/eligible=true --ignore-not-found
-```
-
-#### 9. Tear everything down
-```bash
-kubectl delete -f k8s/manifests/ciw-controller.yaml --ignore-not-found
-kubectl delete namespace workloads --ignore-not-found
-kubectl label node kes-control-plane site- --overwrite || true
-```
-
-Notes
-- Switch the deployment back to the minimal image once finished exporting traces: `kubectl -n workloads set image deploy/ciw-controller controller=goncaloferreirauva/ciw-controller:latest`.
-- If replayed Pods remain Pending, inspect resource usage versus node capacity: `kubectl -n workloads describe pod <pod>` and verify the node label matches `config/sites.json`.
-- The default kind cluster created for development exposes a single node (`kes-control-plane`). Unless additional nodes are added and labelled (for example with `kind create cluster --config` that declares extra workers), all Kubernetes decisions will target site `B`.
-

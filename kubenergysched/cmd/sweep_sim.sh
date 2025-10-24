@@ -26,7 +26,7 @@ BATCH_SIZES=()
 if [[ -n "${SWEEP_BATCH_SIZES:-}" ]]; then
   read -r -a BATCH_SIZES <<< "${SWEEP_BATCH_SIZES}"
 else
-  BATCH_SIZES=(32 128 256)
+  BATCH_SIZES=(200 500 1000)
 fi
 
 ALPHA_MASS="${SWEEP_ALPHA_MASS:-1.0}"
