@@ -170,11 +170,31 @@ func computeCandidateMetrics(job core.Job, nodes []core.SimulatedNode, now time.
 
 func (p *Policy) scoreWeighted(items []candidateMetrics) core.Scores {
 	scores := core.Scores{}
+	minCarbon := math.Inf(1)
 	for _, it := range items {
 		if !it.feasible {
 			continue
 		}
-		score := p.Cfg.Alpha*it.co2Hat +
+		if it.co2 < minCarbon {
+			minCarbon = it.co2
+		}
+	}
+	if math.IsInf(minCarbon, 1) {
+		scores[""] = math.Inf(1)
+		return scores
+	}
+	slack := 0.02 + (1-clamp(p.Cfg.Alpha, 0, 1))*0.1
+	for _, it := range items {
+		if !it.feasible {
+			continue
+		}
+		carbonPenalty := it.co2Hat
+		allowed := minCarbon * (1 + slack + p.Cfg.Gamma*clamp(it.queueHat, 0, 1))
+		if it.co2 > allowed {
+			bump := 0.25 + 0.35*clamp(p.Cfg.Alpha, 0, 1)
+			carbonPenalty += bump
+		}
+		score := p.Cfg.Alpha*carbonPenalty +
 			p.Cfg.Beta*it.runtimeHat +
 			p.Cfg.Gamma*it.queueHat +
 			p.Cfg.Delta*it.moveHat
@@ -184,6 +204,16 @@ func (p *Policy) scoreWeighted(items []candidateMetrics) core.Scores {
 		scores[""] = math.Inf(1)
 	}
 	return scores
+}
+
+func clamp(v, min, max float64) float64 {
+	if v < min {
+		return min
+	}
+	if v > max {
+		return max
+	}
+	return v
 }
 
 func (p *Policy) scoreEpsilon(items []candidateMetrics) core.Scores {

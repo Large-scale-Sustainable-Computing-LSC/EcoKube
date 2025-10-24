@@ -170,11 +170,12 @@ func main() {
 					name: "carbonscaler",
 					run: func(w []core.Workload) ([]core.LogEntry, float64) {
 						const policyID = "carbonscaler"
+						lambda := carbonScalerLambda(ciW)
 						nodes := loader.LoadNodesFromCSV(nodesCSV)
 						sites := loader.LoadSitesFromCSV(sitesCSV)
 						loader.AttachSites(nodes, sites)
 
-						pol := &carbonscaler.Policy{Cfg: carbonscaler.Config{Lambda: ciW}}
+						pol := &carbonscaler.Policy{Cfg: carbonscaler.Config{Lambda: lambda}}
 						sim := &core.BaseSim{}
 						sim.Init(nodes, pol)
 						if tracer != nil {
@@ -225,10 +226,11 @@ func main() {
 
 						sim := &core.BaseSim{}
 						cfg := hetpolicy.DefaultConfig()
-						cfg.Alpha = clampFloat(ciW, 0.2, 0.8)
-						cfg.Beta = 0.4
-						cfg.Gamma = 0.2
 						cfg.Delta = 0.0
+						alpha, beta, gamma := calibrateHetWeights(ciW)
+						cfg.Alpha = alpha
+						cfg.Beta = beta
+						cfg.Gamma = gamma
 						pol := &hetpolicy.Policy{
 							Mode:         mode,
 							Cfg:          cfg,
@@ -377,6 +379,23 @@ func resolveHetMode(token string) (hetpolicy.Mode, bool) {
 	default:
 		return "", false
 	}
+}
+
+func carbonScalerLambda(ciWeight float64) float64 {
+	raw := clampFloat(ciWeight, 0, 1)
+	return clampFloat(0.15+0.65*raw, 0, 0.85)
+}
+
+func calibrateHetWeights(ciWeight float64) (float64, float64, float64) {
+	raw := clampFloat(ciWeight, 0, 1)
+	alpha := clampFloat(0.55+0.35*raw, 0.5, 0.95)
+	beta := clampFloat(0.25-0.12*raw, 0.08, 0.3)
+	gamma := clampFloat(0.25-0.1*raw, 0.05, 0.25)
+	sum := alpha + beta + gamma
+	if sum <= 0 {
+		return alpha, beta, gamma
+	}
+	return alpha / sum, beta / sum, gamma / sum
 }
 
 func writePerJobCSV(outDir, policy string, ciW float64, bs int, logs []core.LogEntry) {

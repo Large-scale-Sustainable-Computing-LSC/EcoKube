@@ -155,3 +155,12 @@ func currentCI(n *core.SimulatedNode, at time.Time) float64 {
 		return n.CarbonIntensity
 	}
 }
+
+// EstimateCarbonIntensity returns the forecasted carbon intensity (gCO₂/kWh)
+// for node n at time at, matching the model used by ComputeCICost.
+func EstimateCarbonIntensity(n *core.SimulatedNode, at time.Time) float64 {
+	if n == nil {
+		return 0
+	}
+	return currentCI(n, at)
+}
