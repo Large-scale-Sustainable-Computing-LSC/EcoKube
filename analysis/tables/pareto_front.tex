@@ -1,22 +1,13 @@
-\begin{table}
-\caption{Pareto front across simulator policies (carbon vs. wait).}
-\label{tab:pareto_front}
-\begin{tabular}{llrrrrrrrrrrrrrrrrrrrrrrl}
-\toprule
-source_jobs & policy & jobs & completed_jobs & completion_ratio & fallback_ratio & total_ci_cost_g_jobs & avg_ci_per_job_g_jobs & avg_wait_s_jobs & avg_runtime_s & makespan_s_jobs & ci_weight & batch_size & total_ci_cost_g_reported & avg_ci_per_job_g_reported & cfp_g_per_cpu_hour & avg_wait_s_reported & makespan_s_reported & elapsed_ms & num_jobs & alpha_mass & lookahead_min & duration_scale & duration_overrides & source_reported \\
-\midrule
-simulator & hetpolicy & 576.000 & 576.000 & 1.000 & NaN & 34.260 & 0.059 & 2020.000 & 1487.500 & 14400.000 & 0.200 & 1000 & 2.855 & 0.059 & 0.010 & 2020.000 & 14400.000 & 1.000 & 48 & 1.000 & 0 & 1.000 & NaN & simulator \\
-simulator & hetpolicy & 576.000 & 576.000 & 1.000 & NaN & 34.260 & 0.059 & 2020.000 & 1487.500 & 14400.000 & 0.200 & 200 & 2.855 & 0.059 & 0.010 & 2020.000 & 14400.000 & 1.000 & 48 & 1.000 & 0 & 1.000 & NaN & simulator \\
-simulator & hetpolicy & 576.000 & 576.000 & 1.000 & NaN & 34.260 & 0.059 & 2020.000 & 1487.500 & 14400.000 & 0.200 & 500 & 2.855 & 0.059 & 0.010 & 2020.000 & 14400.000 & 1.000 & 48 & 1.000 & 0 & 1.000 & NaN & simulator \\
-simulator & hetpolicy & 576.000 & 576.000 & 1.000 & NaN & 34.260 & 0.059 & 2020.000 & 1487.500 & 14400.000 & 0.400 & 1000 & 2.855 & 0.059 & 0.010 & 2020.000 & 14400.000 & 1.000 & 48 & 1.000 & 0 & 1.000 & NaN & simulator \\
-simulator & hetpolicy & 576.000 & 576.000 & 1.000 & NaN & 34.260 & 0.059 & 2020.000 & 1487.500 & 14400.000 & 0.600 & 200 & 2.855 & 0.059 & 0.010 & 2020.000 & 14400.000 & 1.000 & 48 & 1.000 & 0 & 1.000 & NaN & simulator \\
-simulator & hetpolicy & 576.000 & 576.000 & 1.000 & NaN & 34.260 & 0.059 & 2020.000 & 1487.500 & 14400.000 & 0.600 & 1000 & 2.855 & 0.059 & 0.010 & 2020.000 & 14400.000 & 1.000 & 48 & 1.000 & 0 & 1.000 & NaN & simulator \\
-simulator & hetpolicy & 576.000 & 576.000 & 1.000 & NaN & 34.260 & 0.059 & 2020.000 & 1487.500 & 14400.000 & 0.400 & 500 & 2.855 & 0.059 & 0.010 & 2020.000 & 14400.000 & 1.000 & 48 & 1.000 & 0 & 1.000 & NaN & simulator \\
-simulator & hetpolicy & 576.000 & 576.000 & 1.000 & NaN & 34.260 & 0.059 & 2020.000 & 1487.500 & 14400.000 & 0.400 & 200 & 2.855 & 0.059 & 0.010 & 2020.000 & 14400.000 & 1.000 & 48 & 1.000 & 0 & 1.000 & NaN & simulator \\
-simulator & hetpolicy & 576.000 & 576.000 & 1.000 & NaN & 34.260 & 0.059 & 2020.000 & 1487.500 & 14400.000 & 0.800 & 500 & 2.855 & 0.059 & 0.010 & 2020.000 & 14400.000 & 1.000 & 48 & 1.000 & 0 & 1.000 & NaN & simulator \\
-simulator & hetpolicy & 576.000 & 576.000 & 1.000 & NaN & 34.260 & 0.059 & 2020.000 & 1487.500 & 14400.000 & 0.800 & 200 & 2.855 & 0.059 & 0.010 & 2020.000 & 14400.000 & 1.000 & 48 & 1.000 & 0 & 1.000 & NaN & simulator \\
-simulator & hetpolicy & 576.000 & 576.000 & 1.000 & NaN & 34.260 & 0.059 & 2020.000 & 1487.500 & 14400.000 & 0.800 & 1000 & 2.855 & 0.059 & 0.010 & 2020.000 & 14400.000 & 1.000 & 48 & 1.000 & 0 & 1.000 & NaN & simulator \\
-simulator & hetpolicy & 576.000 & 576.000 & 1.000 & NaN & 34.260 & 0.059 & 2020.000 & 1487.500 & 14400.000 & 0.600 & 500 & 2.855 & 0.059 & 0.010 & 2020.000 & 14400.000 & 1.000 & 48 & 1.000 & 0 & 1.000 & NaN & simulator \\
-\bottomrule
+\begin{table}[h!]\centering
+\caption{Simulation Pareto set: non-dominated SCI--makespan points (CFP informative).}\label{tab:pf-sim}
+\small
+\begin{tabular}{r|ccc|cccc|c}\hline
+\multicolumn{1}{c|}{\#} & \multicolumn{3}{c|}{\textbf{Objectives}} & \multicolumn{4}{c|}{\textbf{Configuration}} & \textbf{Approach}\\
+ & SCI (kg) & Makespan (min) & CFP (g\,/CPUh) & $\\alpha$ & $\\beta$ & $\\gamma$ & Horizon (min) & \\\hline
+1  & 0.003 & 240.0 & 0.010 & 0.58 & 0.21 & 0.21 & -- & HetPolicy\
+2  & 0.003 & 245.0 & 0.011 & -- & -- & -- & -- & CarbonScaler\
+3  & 0.003 & 250.0 & 0.011 & -- & -- & -- & -- & CarbonScaler\
+4  & 0.003 & 260.0 & 0.011 & -- & -- & -- & -- & K8s baseline\
+\hline
 \end{tabular}
 \end{table}
