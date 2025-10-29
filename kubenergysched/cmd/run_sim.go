@@ -15,6 +15,8 @@ import (
 	"github.com/g-uva/KubEnergySched/kespolicy/carbonscaler"
 	"github.com/g-uva/KubEnergySched/kespolicy/hetpolicy"
 	"github.com/g-uva/KubEnergySched/kespolicy/k8sched"
+	"github.com/g-uva/KubEnergySched/kespolicy/keids"
+	"github.com/g-uva/KubEnergySched/kespolicy/topsis"
 	"github.com/g-uva/KubEnergySched/kubenergysched/pkg/core"
 	"github.com/g-uva/KubEnergySched/kubenergysched/pkg/loader"
 	"github.com/g-uva/KubEnergySched/kubenergysched/pkg/metrics"
@@ -32,10 +34,20 @@ type SummaryRow struct {
 	MakespanS         float64 `json:"makespan_s"`
 	ElapsedMs         float64 `json:"elapsed_ms"`
 	NumJobs           int     `json:"num_jobs"`
+	Alpha             float64 `json:"alpha"`
+	Beta              float64 `json:"beta"`
+	Gamma             float64 `json:"gamma"`
 	AlphaMass         float64 `json:"alpha_mass"`
 	LookaheadMin      int     `json:"lookahead_min"`
 	DurationScale     float64 `json:"duration_scale"`
 	DurationOverrides string  `json:"duration_overrides"`
+}
+
+type hetWeightSet struct {
+	Alpha float64
+	Beta  float64
+	Gamma float64
+	Label string
 }
 
 func main() {
@@ -61,6 +73,8 @@ func main() {
 	flag.StringVar(&tracePath, "trace-jsonl", "", "append JSON decision traces to this file (use 'auto' for outdir/decisions.jsonl)")
 	var hetModesFlag string
 	flag.StringVar(&hetModesFlag, "het-modes", "het-weighted-sum", "comma-separated hetero policy modes (weighted-sum, epsilon-constraint, greedy-normalised)")
+	var hetWeightsFlag string
+	flag.StringVar(&hetWeightsFlag, "het-weights", "", "comma-separated alpha:beta:gamma sets for hetpolicy (e.g. '0.6:0.3:0.1'); leave empty or 'auto' to calibrate per CI weight")
 	flag.Parse()
 
 	if outDir == "" {
@@ -97,6 +111,7 @@ func main() {
 		log.Printf("het-modes: limiting to first mode %q for deterministic comparison", hetModes[0])
 		hetModes = hetModes[:1]
 	}
+	hetWeightSets := parseHetWeightSets(hetWeightsFlag)
 
 	// ---- Load workloads once and apply duration knobs ----
 	workloads := loader.LoadWorkloadsFromCSV(wlCSV)
@@ -142,7 +157,6 @@ func main() {
 							return metrics.ComputeCICost(n, w, at)
 						}
 
-						// prepare map for CFP
 						workloadByID := map[string]core.Workload{}
 						for _, j := range w {
 							workloadByID[j.ID] = j
@@ -158,6 +172,96 @@ func main() {
 
 						s := summariseRun(policyID, ciW, bs, logs, workloadByID)
 						s.ElapsedMs = elapsed
+						s.AlphaMass = alphaMass
+						s.LookaheadMin = lookaheadMin
+						s.DurationScale = durScale
+						s.DurationOverrides = durationsFlag
+						allSummaries = append(allSummaries, s)
+						return logs, elapsed
+					},
+				},
+				{
+					name: "keids",
+					run: func(w []core.Workload) ([]core.LogEntry, float64) {
+						const policyID = "keids"
+						nodes := loader.LoadNodesFromCSV(nodesCSV)
+						sites := loader.LoadSitesFromCSV(sitesCSV)
+						loader.AttachSites(nodes, sites)
+
+						pol := &keids.Policy{Weights: keids.DefaultWeights()}
+						sim := &core.BaseSim{}
+						sim.Init(nodes, pol)
+						if tracer != nil {
+							sim.SetTracer(tracer)
+						}
+						sim.SetScheduleBatchSize(bs)
+						sim.CICalc = func(n *core.SimulatedNode, w core.Workload, at time.Time) float64 {
+							return metrics.ComputeCICost(n, w, at)
+						}
+
+						workloadByID := map[string]core.Workload{}
+						for _, j := range w {
+							workloadByID[j.ID] = j
+							sim.AddWorkload(j)
+						}
+
+						start := time.Now()
+						sim.Run()
+						elapsed := float64(time.Since(start).Milliseconds())
+
+						logs := sim.Logs()
+						writePerJobCSV(outDir, policyID, ciW, bs, logs)
+
+						s := summariseRun(policyID, ciW, bs, logs, workloadByID)
+						s.ElapsedMs = elapsed
+						s.Alpha = pol.Weights.Alpha
+						s.Beta = pol.Weights.Beta
+						s.Gamma = pol.Weights.Gamma
+						s.AlphaMass = alphaMass
+						s.LookaheadMin = lookaheadMin
+						s.DurationScale = durScale
+						s.DurationOverrides = durationsFlag
+						allSummaries = append(allSummaries, s)
+						return logs, elapsed
+					},
+				},
+				{
+					name: "topsis",
+					run: func(w []core.Workload) ([]core.LogEntry, float64) {
+						const policyID = "topsis"
+						nodes := loader.LoadNodesFromCSV(nodesCSV)
+						sites := loader.LoadSitesFromCSV(sitesCSV)
+						loader.AttachSites(nodes, sites)
+
+						pol := &topsis.Policy{Weights: topsis.DefaultWeights()}
+						sim := &core.BaseSim{}
+						sim.Init(nodes, pol)
+						if tracer != nil {
+							sim.SetTracer(tracer)
+						}
+						sim.SetScheduleBatchSize(bs)
+						sim.CICalc = func(n *core.SimulatedNode, w core.Workload, at time.Time) float64 {
+							return metrics.ComputeCICost(n, w, at)
+						}
+
+						workloadByID := map[string]core.Workload{}
+						for _, j := range w {
+							workloadByID[j.ID] = j
+							sim.AddWorkload(j)
+						}
+
+						start := time.Now()
+						sim.Run()
+						elapsed := float64(time.Since(start).Milliseconds())
+
+						logs := sim.Logs()
+						writePerJobCSV(outDir, policyID, ciW, bs, logs)
+
+						s := summariseRun(policyID, ciW, bs, logs, workloadByID)
+						s.ElapsedMs = elapsed
+						s.Alpha = pol.Weights.Alpha
+						s.Beta = pol.Weights.Beta
+						s.Gamma = pol.Weights.Gamma
 						s.AlphaMass = alphaMass
 						s.LookaheadMin = lookaheadMin
 						s.DurationScale = durScale
@@ -213,61 +317,79 @@ func main() {
 
 			for _, mode := range hetModes {
 				mode := mode
-				specs = append(specs, struct {
-					name string
-					run  func([]core.Workload) ([]core.LogEntry, float64)
-				}{
-					name: "hetpolicy",
-					run: func(w []core.Workload) ([]core.LogEntry, float64) {
-						const policyID = "hetpolicy"
-						nodes := loader.LoadNodesFromCSV(nodesCSV)
-						sites := loader.LoadSitesFromCSV(sitesCSV)
-						loader.AttachSites(nodes, sites)
+				weights := hetWeightSets
+				if len(weights) == 0 {
+					alpha, beta, gamma := calibrateHetWeights(ciW)
+					weights = []hetWeightSet{{
+						Alpha: alpha,
+						Beta:  beta,
+						Gamma: gamma,
+						Label: formatWeightLabel(alpha, beta, gamma),
+					}}
+				}
+				for _, weightCfg := range weights {
+					weightCfg := weightCfg
+					policyID := "hetpolicy"
+					if len(hetWeightSets) > 0 {
+						policyID = formatHetPolicyID(mode, weightCfg.Label)
+					}
+					specs = append(specs, struct {
+						name string
+						run  func([]core.Workload) ([]core.LogEntry, float64)
+					}{
+						name: policyID,
+						run: func(w []core.Workload) ([]core.LogEntry, float64) {
+							nodes := loader.LoadNodesFromCSV(nodesCSV)
+							sites := loader.LoadSitesFromCSV(sitesCSV)
+							loader.AttachSites(nodes, sites)
 
-						sim := &core.BaseSim{}
-						cfg := hetpolicy.DefaultConfig()
-						cfg.Delta = 0.0
-						alpha, beta, gamma := calibrateHetWeights(ciW)
-						cfg.Alpha = alpha
-						cfg.Beta = beta
-						cfg.Gamma = gamma
-						pol := &hetpolicy.Policy{
-							Mode:         mode,
-							Cfg:          cfg,
-							OverrideName: policyID,
-						}
-						sim.Init(nodes, pol)
-						if tracer != nil {
-							sim.SetTracer(tracer)
-						}
-						sim.SetScheduleBatchSize(bs)
-						sim.CICalc = func(n *core.SimulatedNode, w core.Workload, at time.Time) float64 {
-							return metrics.ComputeCICost(n, w, at)
-						}
+							sim := &core.BaseSim{}
+							cfg := hetpolicy.DefaultConfig()
+							cfg.Delta = 0.0
+							cfg.Alpha = weightCfg.Alpha
+							cfg.Beta = weightCfg.Beta
+							cfg.Gamma = weightCfg.Gamma
+							pol := &hetpolicy.Policy{
+								Mode:         mode,
+								Cfg:          cfg,
+								OverrideName: policyID,
+							}
+							sim.Init(nodes, pol)
+							if tracer != nil {
+								sim.SetTracer(tracer)
+							}
+							sim.SetScheduleBatchSize(bs)
+							sim.CICalc = func(n *core.SimulatedNode, w core.Workload, at time.Time) float64 {
+								return metrics.ComputeCICost(n, w, at)
+							}
 
-						workloadByID := map[string]core.Workload{}
-						for _, j := range w {
-							workloadByID[j.ID] = j
-							sim.AddWorkload(j)
-						}
+							workloadByID := map[string]core.Workload{}
+							for _, j := range w {
+								workloadByID[j.ID] = j
+								sim.AddWorkload(j)
+							}
 
-						start := time.Now()
-						sim.Run()
-						elapsed := float64(time.Since(start).Milliseconds())
+							start := time.Now()
+							sim.Run()
+							elapsed := float64(time.Since(start).Milliseconds())
 
-						logs := sim.Logs()
-						writePerJobCSV(outDir, policyID, ciW, bs, logs)
+							logs := sim.Logs()
+							writePerJobCSV(outDir, policyID, ciW, bs, logs)
 
-						s := summariseRun(policyID, ciW, bs, logs, workloadByID)
-						s.ElapsedMs = elapsed
-						s.AlphaMass = alphaMass
-						s.LookaheadMin = lookaheadMin
-						s.DurationScale = durScale
-						s.DurationOverrides = durationsFlag
-						allSummaries = append(allSummaries, s)
-						return logs, elapsed
-					},
-				})
+							s := summariseRun(policyID, ciW, bs, logs, workloadByID)
+							s.ElapsedMs = elapsed
+							s.Alpha = weightCfg.Alpha
+							s.Beta = weightCfg.Beta
+							s.Gamma = weightCfg.Gamma
+							s.AlphaMass = alphaMass
+							s.LookaheadMin = lookaheadMin
+							s.DurationScale = durScale
+							s.DurationOverrides = durationsFlag
+							allSummaries = append(allSummaries, s)
+							return logs, elapsed
+						},
+					})
+				}
 			}
 
 			// run all 3 schedulers for this (ciW, bs)
@@ -368,6 +490,73 @@ func parseHetModes(raw string) []hetpolicy.Mode {
 	return modes
 }
 
+func parseHetWeightSets(raw string) []hetWeightSet {
+	raw = strings.TrimSpace(raw)
+	if raw == "" || strings.EqualFold(raw, "auto") {
+		return nil
+	}
+	tokens := strings.Split(raw, ",")
+	sets := make([]hetWeightSet, 0, len(tokens))
+	for _, token := range tokens {
+		token = strings.TrimSpace(token)
+		if token == "" {
+			continue
+		}
+		parts := strings.Split(token, ":")
+		if len(parts) != 3 {
+			log.Printf("het-weights: expected alpha:beta:gamma, got %q", token)
+			continue
+		}
+		vals := make([]float64, 0, 3)
+		for _, part := range parts {
+			v, err := strconv.ParseFloat(strings.TrimSpace(part), 64)
+			if err != nil {
+				log.Printf("het-weights: ignoring %q (%v)", token, err)
+				vals = nil
+				break
+			}
+			vals = append(vals, v)
+		}
+		if len(vals) != 3 {
+			continue
+		}
+		sum := vals[0] + vals[1] + vals[2]
+		if sum <= 0 {
+			log.Printf("het-weights: ignoring %q (non-positive sum)", token)
+			continue
+		}
+		alpha := vals[0] / sum
+		beta := vals[1] / sum
+		gamma := vals[2] / sum
+		sets = append(sets, hetWeightSet{
+			Alpha: alpha,
+			Beta:  beta,
+			Gamma: gamma,
+			Label: formatWeightLabel(alpha, beta, gamma),
+		})
+	}
+	return sets
+}
+
+func formatWeightLabel(alpha, beta, gamma float64) string {
+	return fmt.Sprintf("a%s_b%s_g%s", compactFloat(alpha), compactFloat(beta), compactFloat(gamma))
+}
+
+func compactFloat(v float64) string {
+	s := fmt.Sprintf("%.2f", v)
+	s = strings.ReplaceAll(s, "-", "m")
+	s = strings.ReplaceAll(s, ".", "p")
+	return s
+}
+
+func formatHetPolicyID(mode hetpolicy.Mode, label string) string {
+	modeSafe := strings.ReplaceAll(string(mode), "-", "_")
+	if label != "" {
+		return fmt.Sprintf("hetpolicy_%s_%s", modeSafe, label)
+	}
+	return fmt.Sprintf("hetpolicy_%s", modeSafe)
+}
+
 func resolveHetMode(token string) (hetpolicy.Mode, bool) {
 	switch strings.ToLower(token) {
 	case string(hetpolicy.ModeWeightedSum), "weighted-sum":
@@ -387,15 +576,10 @@ func carbonScalerLambda(ciWeight float64) float64 {
 }
 
 func calibrateHetWeights(ciWeight float64) (float64, float64, float64) {
-	raw := clampFloat(ciWeight, 0, 1)
-	alpha := clampFloat(0.55+0.35*raw, 0.5, 0.95)
-	beta := clampFloat(0.25-0.12*raw, 0.08, 0.3)
-	gamma := clampFloat(0.25-0.1*raw, 0.05, 0.25)
-	sum := alpha + beta + gamma
-	if sum <= 0 {
-		return alpha, beta, gamma
-	}
-	return alpha / sum, beta / sum, gamma / sum
+	_ = ciWeight
+	// Thesis-aligned weighting prioritises carbon (α) with equal emphasis on
+	// runtime and queueing (β, γ). Keep a fixed triple to ensure reproducible sweeps.
+	return 0.58, 0.21, 0.21
 }
 
 func writePerJobCSV(outDir, policy string, ciW float64, bs int, logs []core.LogEntry) {
@@ -437,6 +621,7 @@ func writeSummary(outDir string, rows []SummaryRow) {
 		"policy", "ci_weight", "batch_size",
 		"total_ci_cost_g", "avg_ci_per_job_g", "cfp_g_per_cpu_hour",
 		"avg_wait_s", "makespan_s", "elapsed_ms", "num_jobs",
+		"alpha", "beta", "gamma",
 		"alpha_mass", "lookahead_min", "duration_scale", "duration_overrides",
 	})
 
@@ -452,6 +637,9 @@ func writeSummary(outDir string, rows []SummaryRow) {
 			fmt.Sprintf("%.6f", r.MakespanS),
 			fmt.Sprintf("%.3f", r.ElapsedMs),
 			strconv.Itoa(r.NumJobs),
+			fmt.Sprintf("%.4f", r.Alpha),
+			fmt.Sprintf("%.4f", r.Beta),
+			fmt.Sprintf("%.4f", r.Gamma),
 			fmt.Sprintf("%.4f", r.AlphaMass),
 			strconv.Itoa(r.LookaheadMin),
 			fmt.Sprintf("%.3f", r.DurationScale),

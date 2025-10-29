@@ -32,10 +32,12 @@ Use the helper to build consistent node, site, and workload CSVs:
   - `SWEEP_CI_WEIGHTS="0.2 0.5 0.8" SWEEP_BATCH_SIZES="200 800" ./cmd/sweep_sim.sh`
   - Additional knobs: `SWEEP_ALPHA_MASS`, `SWEEP_LOOKAHEAD_MIN`, `SWEEP_DUR_SCALE`, `SWEEP_DURATIONS`, `SWEEP_EXTRA_ARGS`.
 - Each run emits `summary.csv`, per-policy job CSVs, and the JSONL trace under `kubenergysched/results_<timestamp>/ci_<ci>_bs_<N>/`. After the sweep, mirror the outputs into `kubenergysched/results_latest` (one `*_results.csv` per scheduler/setting plus consolidated `summary.{csv,json}` and `decisions.jsonl`) so the notebooks pick up the latest data.
-- Default sweep covers three schedulers only:
+- Default sweep covers the four thesis schedulers:
   - `k8s` – Baseline bin-pack from `kespolicy/k8sched` (no carbon awareness).
-  - `carbonscaler` – Utility-driven policy with carbon penalty `lambda = ci_weight`.
-  - `hetpolicy` – Heterogeneity-aware weighted sum with thesis-aligned weights (`alpha = ci_weight`, `beta = 0.4`, `gamma = 0.2`, `delta = 0.0`) to emphasise carbon plus queue latency. These settings make the hetpolicy Pareto-dominate the carbon vs wait trade-off across the sweep.
+  - `keids` – KEIDS-inspired weighted policy with fixed `α=0.58`, `β=0.21`, `γ=0.21` to balance carbon, runtime, and interference.
+  - `topsis` – Technique for Order Preference by Similarity to Ideal Solution using the same `(α,β,γ)` triple.
+  - `hetpolicy` – Heterogeneity-aware strategy using the calibrated thesis weights (`α=0.58`, `β=0.21`, `γ=0.21`, `δ=0`).
+  - The Kubernetes replay additionally compares `carbonscaler` against the heterogeneous policy when CarbonScaler traces are available.
 - Update or symlink `kubenergysched/results_latest` to point at the run the notebook should consume.
 
 ## Kubernetes replay snapshot (optional)
