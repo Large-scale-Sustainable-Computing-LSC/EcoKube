@@ -59,7 +59,7 @@ Once a cluster is available, these steps refresh the trace:
 
 ## Repository layout
 ```txt
-kestack/
+kubenergysched/
 ├─ kubenergysched/              # Scheduler wrapper (Go module)
 │  ├─ cmd/                      # Simulator entry-points and helpers
 │  ├─ controller/               # Kubernetes controller
