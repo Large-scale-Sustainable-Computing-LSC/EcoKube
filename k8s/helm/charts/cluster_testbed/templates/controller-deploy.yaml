@@ -2,7 +2,6 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: ci-aware-controller
-  namespace: workloads
 spec:
   replicas: 1
   selector: { matchLabels: { app: ci-aware-controller } }

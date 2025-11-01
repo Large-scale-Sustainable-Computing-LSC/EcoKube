@@ -1,13 +1,8 @@
-# ci-aware namespace + per-site config
-apiVersion: v1
-kind: Namespace
-metadata: { name: ci-aware }
----
 apiVersion: v1
 kind: ConfigMap
 metadata:
   name: site-params
-  namespace: ci-aware
+  namespace: {{ .Release.Namespace }}
 data:
   sites.json: |
     {
@@ -15,4 +10,3 @@ data:
       "B": {"pue": 1.05, "k": 0.95, "region": "ON", "ci": 120},
       "C": {"pue": 1.60, "k": 1.10, "region": "CA", "ci": 520}
     }
-
