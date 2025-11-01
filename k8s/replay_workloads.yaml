@@ -39,6 +39,14 @@ spec:
           env:
             - name: WORKLOAD_NS
               value: "workloads"
+            - name: ENABLE_PROM_SIDECAR
+              value: "true"
+            - name: PROM_SIDECAR_IMAGE
+              value: "goncaloferreirauva/ciw-metrics-agent:latest"
+            - name: SCHEDULER_LABEL
+              value: "hetpolicy"
+            - name: DEFAULT_MAX_DEFER_FRACTION
+              value: "0.25"
           volumeMounts:
             - { name: data, mountPath: /data }
       volumes:

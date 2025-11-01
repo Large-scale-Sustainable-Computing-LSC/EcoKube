@@ -6,12 +6,15 @@ import (
 
 // Job descriptor (trim to what you actually use)
 type Job struct {
-	ID       string
-	CPU      float64
-	MemoryGB float64
-	Deadline time.Time // optional
-	Profile  string    // used by SLO stub if needed
-	Tags     map[string]string
+	ID                string
+	CPU               float64
+	MemoryGB          float64
+	Deadline          time.Time // optional
+	Profile           string    // used by SLO stub if needed
+	Tags              map[string]string
+	EstimatedDuration float64   // seconds; optional
+	SubmitTime        time.Time // creation timestamp
+	SlackSeconds      float64   // how long the job can be deferred
 }
 
 // Site-level factors (external config)
@@ -74,4 +77,7 @@ type DecisionTrace struct {
 	QueuedAt     time.Time `json:"queued_at,omitempty"`
 	StartedAt    time.Time `json:"started_at,omitempty"`
 	EndedAt      time.Time `json:"ended_at,omitempty"`
+	Scale        int       `json:"scale,omitempty"`
+	QueueSeconds float64   `json:"queue_seconds,omitempty"`
+	DeferredFor  float64   `json:"deferred_for_seconds,omitempty"`
 }

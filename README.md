@@ -48,14 +48,22 @@ KubEnergySched evaluates the following KesPolicies implementations:
   - The Kubernetes replay additionally compares `carbonscaler` (CarbonScalerPolicy) against HetPolicy when CarbonScaler traces are available.
 - Update or symlink `kubenergysched/results_latest` to point at the run the notebook should consume.
 
-## Kubernetes replay snapshot (optional)
-Once a cluster is available, these steps refresh the trace:
-1. Build and push controller and workload images (`kubenergysched/controller`, `kubenergysched/workloads`).
-2. Reset the `workloads` namespace, load the generated CSVs as ConfigMaps, and label nodes (site `B` by default).
-3. Deploy `k8s/manifests/ciw-controller.yaml`, switch to the debug image if interactive access is needed, and apply `k8s/replay_workloads.yaml`.
-4. When jobs have completed, export the trace:  
-   `kubectl -n workloads exec deploy/ciw-controller -- cat /var/log/ciw/decisions.jsonl > kubenergysched/results_latest/decisions.jsonl`
-5. Rerun the notebook to evaluate Kubernetes against the simulator sweeps.
+## Kubernetes pathway
+The Kubernetes replay track mirrors the simulator while exercising real scheduling policies (HetPolicy and CarbonScaler). The helper script `k8s/scripts/cluster.sh` automates the end-to-end lifecycle:
+
+1. **Build container images** – Push updated controller, replayer, and metrics-agent images (`kubenergysched/controller`, `kubenergysched/workloads`, `k8s/images/ciw-metrics-agent`).
+2. **Bootstrap services** – `./k8s/scripts/cluster.sh bootstrap` prepares the namespace, refreshes ConfigMaps (`nodes.csv`, `workloads.csv`, `sites.json`), and deploys the CI-aware controller with HetPolicy enabled by default.
+3. **Replay the workloads** – `./k8s/scripts/cluster.sh replay` submits the batch via the workload replayer. Each Job includes an in-pod Prometheus metrics agent (port `9101`) sharing the process namespace so the exporter sees the workload’s processes.
+4. **Collect traces** – `./k8s/scripts/cluster.sh fetch [output]` copies `/var/log/ciw/decisions.jsonl` into `kubenergysched/results_latest/decisions.jsonl` (or a custom path) ready for the notebooks.
+
+Additional commands include `status` (pod overview), `logs` (follow the controller deployment), `reset` (tear down namespace + cluster roles), and `helm-{up,down}` to manage the optional Helm stack under `k8s/helm`.
+
+### Policies and deferral knobs
+- Toggle policies by setting `SCHEDULER_POLICY` (`hetpolicy` or `carbonscaler`) on the controller deployment (`kubectl -n workloads set env deploy/ciw-controller SCHEDULER_POLICY=carbonscaler`).
+- CarbonScaler honours temporal shifting (`CARBONSCALER_SHIFT_FRACTION`/`DEFAULT_MAX_DEFER_FRACTION`) and resource elasticity (`CARBONSCALER_ELASTICITY`), recording `queue_seconds`, `deferred_for_seconds`, and the chosen `scale` inside `decisions.jsonl`.
+- HetPolicy reuses the calibrated thesis weights (`α=0.58`, `β=0.21`, `γ=0.21`) and emits the same per-node score traces as the simulator.
+
+The metrics agent exposes pod-level CPU seconds, RSS usage, and process counts for Prometheus. Override `PROM_SIDECAR_*` environment variables in `k8s/replay_workloads.yaml` or the `cluster.sh` script to point at a custom registry.
 
 ## Repository layout
 ```txt
