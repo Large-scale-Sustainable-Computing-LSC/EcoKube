@@ -11,7 +11,7 @@ spec:
       serviceAccountName: ci-aware
       containers:
         - name: ctrl
-          image: goncaloferreirauva/ci-aware-controller:latest
+          image: {{ .Values.ciAware.image | quote }}
           env:
             - name: WORKLOAD_NS
               value: "workloads"

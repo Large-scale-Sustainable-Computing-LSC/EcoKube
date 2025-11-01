@@ -1,4 +1,7 @@
 #!/bin/bash
+
+# This is to get the host properties to copy/paste in the Thesis.
+
 set +e
 
 OUT="machine_report_$(date +%Y%m%d_%H%M).md"

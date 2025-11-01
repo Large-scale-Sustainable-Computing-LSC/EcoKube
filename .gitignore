@@ -24,7 +24,5 @@ fabric_python/share/
 .ssh/
 share/
 
-thesis-overleaf/
-
-
 settings.json
+temp-commands.sh

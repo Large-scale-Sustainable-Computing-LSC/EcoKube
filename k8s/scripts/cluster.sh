@@ -9,7 +9,7 @@ HELM_NAMESPACE="${KES_HELM_NAMESPACE:-$NAMESPACE}"
 CHART_DIR="$REPO_ROOT/k8s/helm"
 MANIFEST_DIR="$REPO_ROOT/k8s/manifests"
 CONFIG_DIR="$REPO_ROOT/kubenergysched/config"
-RESULT_DIR="${RESULT_DIR:-$REPO_ROOT/kubenergysched/results_latest}"
+RESULT_DIR="${RESULT_DIR:-$REPO_ROOT/kubenergysched/results_latest_k8s}"
 
 usage() {
   cat <<USAGE
@@ -64,7 +64,8 @@ fetch() {
   out="${1:-$RESULT_DIR/decisions.jsonl}"
   mkdir -p "$(dirname "$out")"
   echo ">>> Exporting decisions to $out"
-  kubectl -n "$NAMESPACE" exec deploy/ciw-controller -- cat /var/log/ciw/decisions.jsonl > "$out"
+  echo ">>> Namespace is $NAMESPACE"
+  kubectl -n "$NAMESPACE" exec deploy/ci-aware-controller -- cat /var/log/ciw/decisions.jsonl > "$out"
 }
 
 status() {

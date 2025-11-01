@@ -10,9 +10,37 @@ metadata:
   name: ci-aware-job-editor
   namespace: {{ .Release.Namespace }}
 rules:
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get","list","watch","update","patch"]
+  - apiGroups: [""]
+    resources: ["pods/binding"]
+    verbs: ["create"]
   - apiGroups: ["batch"]
     resources: ["jobs"]
     verbs: ["get","list","watch","update","patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ printf "%s-controller-node-reader" .Release.Name }}
+rules:
+  - apiGroups: [""]
+    resources: ["nodes"]
+    verbs: ["get","list","watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ printf "%s-controller-node-reader" .Release.Name }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ printf "%s-controller-node-reader" .Release.Name }}
+subjects:
+  - kind: ServiceAccount
+    name: ci-aware
+    namespace: {{ .Release.Namespace }}
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
