@@ -8,6 +8,7 @@ NAMESPACE = os.getenv("WORKLOAD_NS", "workloads")
 IMAGE = os.getenv("JOB_IMAGE", "ubuntu:22.04")
 SLEEP_BETWEEN = float(os.getenv("SUBMIT_EVERY_SEC", "0.5"))
 FORCE_SITE = os.getenv("FORCE_SITE", "").strip()
+TARGET_SCHEDULER_NAME = os.getenv("TARGET_SCHEDULER_NAME", "ci-aware").strip()
 ENABLE_PROM = os.getenv("ENABLE_PROM_SIDECAR", "false").lower() in {"1", "true", "yes", "on"}
 PROM_IMAGE = os.getenv("PROM_SIDECAR_IMAGE", "goncaloferreirauva/ciw-metrics-agent:latest")
 PROM_PORT = int(os.getenv("PROM_SIDECAR_PORT", "9101"))
@@ -136,6 +137,8 @@ def job_from_row(row, index=None):
         containers.append(metrics_container)
 
     podspec_kwargs = dict(restart_policy="Never", containers=containers, affinity=affinity)
+    if TARGET_SCHEDULER_NAME:
+        podspec_kwargs["scheduler_name"] = TARGET_SCHEDULER_NAME
     if ENABLE_PROM:
         podspec_kwargs["share_process_namespace"] = True
     podspec = client.V1PodSpec(**podspec_kwargs)

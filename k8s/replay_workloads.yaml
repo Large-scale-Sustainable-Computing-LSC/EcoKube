@@ -39,6 +39,8 @@ spec:
           env:
             - name: WORKLOAD_NS
               value: "workloads"
+            - name: TARGET_SCHEDULER_NAME
+              value: "ci-aware"
             - name: ENABLE_PROM_SIDECAR
               value: "true"
             - name: PROM_SIDECAR_IMAGE

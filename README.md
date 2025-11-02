@@ -8,6 +8,20 @@ KubEnergySched is the sustainability-aware scheduling framework for Heterogeneou
 - **4. Launch the analysis notebook** – Open `analysis/jupyter/output_capture.ipynb` (or `final_analysis.executed.ipynb`) in Jupyter, run all cells, and review the generated tables, plots, and evaluation metrics.
 - **5. Compare policies** – The notebook materialises the carbon and timeliness metrics mandated by the thesis (CFP, SCI, makespan, latency, scheduler overhead, throughput, average energy per job) so both pathways can be contrasted consistently.
 
+### Kubernetes replay quick start
+The replay track mirrors the simulator while exercising the live HetPolicy and CarbonScaler controllers.
+
+1. **Create the Kind cluster** (multi-node, labelled): `kind create cluster --name themis --config k8s/kind/multi-node.yaml`.
+2. **Load fresh controller/replayer images**: `kind load docker-image --name themis goncaloferreirauva/ci-aware-controller:<tag>` and `goncaloferreirauva/workload-replayer:<tag>`.
+3. **Install the Helm stack** (HetPolicy): `./k8s/scripts/cluster.sh helm-up`.
+4. **Export HetPolicy decisions**: `RESULT_DIR=$PWD/kubenergysched/results_k8s/hetpolicy ./k8s/scripts/cluster.sh fetch`.
+5. **Switch to CarbonScaler**: `kubectl -n workloads set env deploy/ci-aware-controller SCHEDULER_POLICY=carbonscaler` and rerun `helm-up`.
+6. **Export CarbonScaler decisions**: `RESULT_DIR=$PWD/kubenergysched/results_k8s/carbonscaler ./k8s/scripts/cluster.sh fetch`.
+7. **Aggregate + plots**: `python analysis/scripts/aggregate_k8s.py --het kubenergysched/results_k8s/hetpolicy/decisions.jsonl --carbonscaler kubenergysched/results_k8s/carbonscaler/decisions.jsonl --output kubenergysched/results_k8s`.
+8. **Preview notebooks**: `analysis/jupyter/sim_analysis.ipynb` for the simulator, `analysis/jupyter/k8s_analysis.ipynb` for the replay.
+
+Outputs are mirrored to `analysis/k8s_results/` (CSV + PNG).
+
 ## Evaluation metrics
 The notebook implements the Section 6.2.2 definitions over the harmonised per-job traces:
 - **Carbon Footprint (CFP)** – $CFP_j = Σ_t E_{j,t} · CI_{s,t} / 1000$, reported per job and per batch in grams and kilograms.
@@ -32,21 +46,6 @@ KubEnergySched evaluates the following KesPolicies implementations:
 - **TOPSISPolicy** – Technique for Order Preference by Similarity to Ideal Solution, using the same ${α, β, γ}$ weights but ranking nodes via vector normalisation.
 - **HetPolicy** – Heterogeneity-aware policy that accounts for node/site diversity while applying the calibrated thesis weights (including optional δ terms).
 - **CarbonScalerPolicy** – Replay-only policy mirroring the CarbonScaler controller when Kubernetes trace exports are available for comparison.
-
-## Simulator sweep
-- Quick sweep with thesis defaults:
-  - `cd kubenergysched && ./cmd/sweep_sim.sh`
-- Customise via environment variables before running the script:
-  - `SWEEP_CI_WEIGHTS="0.2 0.5 0.8" SWEEP_BATCH_SIZES="200 800" ./cmd/sweep_sim.sh`
-  - Additional knobs: `SWEEP_ALPHA_MASS`, `SWEEP_LOOKAHEAD_MIN`, `SWEEP_DUR_SCALE`, `SWEEP_DURATIONS`, `SWEEP_EXTRA_ARGS`.
-- Each run emits `summary.csv`, per-policy job CSVs, and the JSONL trace under `kubenergysched/results_<timestamp>/ci_<ci>_bs_<N>/`. After the sweep, mirror the outputs into `kubenergysched/results_latest` (one `*_results.csv` per scheduler/setting plus consolidated `summary.{csv,json}` and `decisions.jsonl`) so the notebooks pick up the latest data.
-- Default sweep covers the following policies from KesPolicies:
-  - `k8s` (K8sPolicy) – Baseline bin-pack reference.
-  - `keids` (KEIDSPolicy) – Weighted sum with thesis-calibrated weights `α=0.58`, `β=0.21`, `γ=0.21`.
-  - `topsis` (TOPSISPolicy) – TOPSIS ranking with the same `(α, β, γ)` triple.
-  - `hetpolicy` (HetPolicy) – Heterogeneity-aware policy with thesis weights (`α=0.58`, `β=0.21`, `γ=0.21`, `δ=0`).
-  - The Kubernetes replay additionally compares `carbonscaler` (CarbonScalerPolicy) against HetPolicy when CarbonScaler traces are available.
-- Update or symlink `kubenergysched/results_latest` to point at the run the notebook should consume.
 
 ## Kubernetes pathway
 The Kubernetes replay track mirrors the simulator while exercising real scheduling policies (HetPolicy and CarbonScaler). The helper script `k8s/scripts/cluster.sh` automates the end-to-end lifecycle:

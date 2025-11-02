@@ -1,0 +1,2 @@
+policy,jobs,makespan_s,avg_wait_s,avg_runtime_s,total_carbon_kg,avg_carbon_g_per_job,total_energy_kwh,avg_energy_kwh_per_job,throughput_jobs_per_hour
+carbonscaler,18,538.0,1.2777777777777777,196.27777777777777,0.011488846115384617,0.6382692286324788,0.09241202991452992,0.005134001661918328,120.4460966542751
