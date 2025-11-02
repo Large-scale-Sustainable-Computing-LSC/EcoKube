@@ -6,7 +6,7 @@ metadata:
 data:
   sites.json: |
     {
-      "A": {"pue": 1.18, "k": 1.00, "region": "NL", "ci": 410},
-      "B": {"pue": 1.05, "k": 0.95, "region": "ON", "ci": 120},
-      "C": {"pue": 1.60, "k": 1.10, "region": "CA", "ci": 520}
+      "A": {"pue": 1.25, "k": 1.05, "region": "ES", "ci": 520},
+      "B": {"pue": 1.08, "k": 0.98, "region": "NL", "ci": 180},
+      "C": {"pue": 1.02, "k": 0.92, "region": "SE", "ci": 70}
     }

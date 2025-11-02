@@ -21,6 +21,7 @@ import (
 	"github.com/g-uva/KubEnergySched/kespolicy/hetpolicy"
 	core "github.com/g-uva/KubEnergySched/kubenergysched/pkg/core"
 	"github.com/g-uva/KubEnergySched/kubenergysched/pkg/engine"
+	"github.com/g-uva/KubEnergySched/kubenergysched/pkg/metrics"
 	"github.com/g-uva/KubEnergySched/kubenergysched/pkg/providers"
 	"github.com/g-uva/KubEnergySched/kubenergysched/pkg/types"
 
@@ -89,6 +90,7 @@ type controller struct {
 	sites     map[string]siteCfg
 	cs        *kubernetes.Clientset
 	scheduler scheduler
+	deps      engine.Deps
 	writer    *jsonlWriter
 
 	podLister   corelisters.PodLister
@@ -175,6 +177,7 @@ func main() {
 		sites:       sites,
 		cs:          cs,
 		scheduler:   sched,
+		deps:        deps,
 		writer:      writer,
 		podLister:   factory.Core().V1().Pods().Lister(),
 		podInformer: podInformer,
@@ -379,6 +382,8 @@ func (c *controller) schedulePod(ctx context.Context, pod *corev1.Pod) (time.Dur
 	trace.Node = dec.NodeID
 	trace.Site = view.Snapshot.Site.Name
 	trace.Scale = dec.Scale
+	trace.QueueSeconds = view.QueueSeconds
+	c.enrichTrace(&trace, job, view)
 	_ = c.writer.WriteOne(trace)
 
 	c.recordState(pod, trace)
@@ -510,6 +515,52 @@ func (c *controller) recordState(pod *corev1.Pod, trace types.DecisionTrace) {
 	}
 	if st.Trace.QueuedAt.IsZero() {
 		st.Trace.QueuedAt = pod.CreationTimestamp.Time
+	}
+}
+
+func (c *controller) enrichTrace(trace *types.DecisionTrace, job types.Job, view nodeView) {
+	if trace == nil {
+		return
+	}
+	work := jobToWorkload(job)
+	nodeCopy := view.Sim
+	energyKWh, carbonKg := metrics.ComputeEnergyAndCarbon(&nodeCopy, work, c.now())
+
+	if energyKWh > 0 {
+		ref := c.deps.Refs.ERef
+		if ref <= 0 {
+			ref = 1
+		}
+		trace.ENorm = energyKWh / ref
+	}
+	if carbonKg > 0 {
+		ref := c.deps.Refs.CRef
+		if ref <= 0 {
+			ref = 1
+		}
+		trace.CNorm = carbonKg / ref
+	}
+	trace.Cost = c.deps.Weights.E*trace.ENorm + c.deps.Weights.C*trace.CNorm
+	trace.ThetaE = c.deps.Theta.ThetaE
+	trace.ThetaC = c.deps.Theta.ThetaC
+}
+
+func jobToWorkload(job types.Job) core.Workload {
+	dur := time.Duration(job.EstimatedDuration * float64(time.Second))
+	if dur <= 0 {
+		dur = time.Minute
+	}
+	labels := map[string]string{}
+	for k, v := range job.Tags {
+		labels[k] = v
+	}
+	return core.Workload{
+		ID:         job.ID,
+		SubmitTime: job.SubmitTime,
+		Duration:   dur,
+		CPU:        job.CPU,
+		Memory:     job.MemoryGB,
+		Labels:     labels,
 	}
 }
 

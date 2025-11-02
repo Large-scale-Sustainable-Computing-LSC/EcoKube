@@ -12,6 +12,7 @@ spec:
       containers:
         - name: ctrl
           image: {{ .Values.ciAware.image | quote }}
+          imagePullPolicy: {{ .Values.ciAware.pullPolicy | default "IfNotPresent" | quote }}
           env:
             - name: WORKLOAD_NS
               value: "workloads"

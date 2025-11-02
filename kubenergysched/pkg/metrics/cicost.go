@@ -14,13 +14,13 @@ const (
 	defaultCarbonIntG = 400.0
 )
 
-// ComputeCICost estimates the grams of CO₂ emitted by running workload w on node n starting at time at.
-// It combines a simple power model (idle + CPU utilisation share) with the node/site carbon intensity hints.
-func ComputeCICost(n *core.SimulatedNode, w core.Workload, at time.Time) float64 {
+// ComputeEnergyAndCarbon estimates the energy (in kWh) and CO₂ emissions (in kg)
+// for running workload w on node n starting at time at.
+// The model combines idle/dynamic power with node/site carbon-intensity hints.
+func ComputeEnergyAndCarbon(n *core.SimulatedNode, w core.Workload, at time.Time) (energyKWh float64, carbonKg float64) {
 	if n == nil {
-		return 0
+		return 0, 0
 	}
-
 	ci := currentCI(n, at)
 	if ci <= 0 {
 		if n.Site != nil && n.Site.CarbonIntensity > 0 {
@@ -70,7 +70,7 @@ func ComputeCICost(n *core.SimulatedNode, w core.Workload, at time.Time) float64
 		dur = time.Second
 	}
 
-	energyKWh := (powerW / 1000.0) * dur.Hours()
+	energyKWh = (powerW / 1000.0) * dur.Hours()
 
 	if n.Site != nil {
 		if n.Site.K > 0 {
@@ -83,17 +83,23 @@ func ComputeCICost(n *core.SimulatedNode, w core.Workload, at time.Time) float64
 		pue = n.Site.PUE
 	}
 
-	ciCost := energyKWh * pue * (ci / 1000.0)
+	carbonKg = energyKWh * pue * (ci / 1000.0)
 
 	if w.Labels != nil {
 		if preferred := w.Labels["preferred_site"]; preferred != "" {
 			if n.Site != nil && n.Site.ID != "" && n.Site.ID != preferred {
-				ciCost *= 1.25
+				carbonKg *= 1.25
 			}
 		}
 	}
 
-	return ciCost
+	return energyKWh, carbonKg
+}
+
+// ComputeCICost keeps the legacy behaviour of returning grams of CO₂.
+func ComputeCICost(n *core.SimulatedNode, w core.Workload, at time.Time) float64 {
+	_, carbonKg := ComputeEnergyAndCarbon(n, w, at)
+	return carbonKg * 1000.0
 }
 
 func currentCI(n *core.SimulatedNode, at time.Time) float64 {
