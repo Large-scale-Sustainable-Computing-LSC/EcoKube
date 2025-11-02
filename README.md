@@ -17,7 +17,7 @@ The replay track mirrors the simulator while exercising the live HetPolicy and C
 4. **Export HetPolicy decisions**: `RESULT_DIR=$PWD/kubenergysched/results_k8s/hetpolicy ./k8s/scripts/cluster.sh fetch`.
 5. **Switch to CarbonScaler**: `kubectl -n workloads set env deploy/ci-aware-controller SCHEDULER_POLICY=carbonscaler` and rerun `helm-up`.
 6. **Export CarbonScaler decisions**: `RESULT_DIR=$PWD/kubenergysched/results_k8s/carbonscaler ./k8s/scripts/cluster.sh fetch`.
-7. **Aggregate + plots**: `python analysis/scripts/aggregate_k8s.py --het kubenergysched/results_k8s/hetpolicy/decisions.jsonl --carbonscaler kubenergysched/results_k8s/carbonscaler/decisions.jsonl --output kubenergysched/results_k8s`.
+7. **Aggregate + plots**: `python analysis/scripts/aggregate_k8s.py --het kubenergysched/results_k8s/hetpolicy/decisions.jsonl --carbonscaler kubenergysched/results_k8s/carbonscaler/decisions.jsonl --output analysis/k8s_results --figures-dir analysis/figures/k8s`.
 8. **Preview notebooks**: `analysis/jupyter/sim_analysis.ipynb` for the simulator, `analysis/jupyter/k8s_analysis.ipynb` for the replay.
 
 Outputs are mirrored to `analysis/k8s_results/` (CSV + PNG).

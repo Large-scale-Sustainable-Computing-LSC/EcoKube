@@ -9,7 +9,10 @@ import json
 from dataclasses import dataclass
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
-from typing import Dict, Iterable, List, Sequence, Tuple
+from typing import Dict, Iterable, List, Tuple
+
+import numpy as np
+import pandas as pd
 
 try:
     import matplotlib.pyplot as plt
@@ -47,6 +50,18 @@ class JobRecord:
     @property
     def runtime_s(self) -> float:
         return max((self.ended_at - self.started_at).total_seconds(), 0.0)
+
+    @property
+    def carbon_g(self) -> float:
+        return self.carbon_kg * 1000.0
+
+    @property
+    def ci_cost_g(self) -> float:
+        return self.carbon_g
+
+    @property
+    def energy_wh(self) -> float:
+        return self.energy_kwh * 1000.0
 
 
 def load_workload_durations(csv_path: Path) -> Dict[str, float]:
@@ -129,6 +144,7 @@ def aggregate_policy(records: List[JobRecord]) -> Dict[str, float]:
     makespan = (max(r.ended_at for r in records) - min(r.queued_at for r in records)).total_seconds()
     total_carbon = sum(r.carbon_kg for r in records)
     total_energy = sum(r.energy_kwh for r in records)
+    total_ci_cost_g = sum(r.ci_cost_g for r in records)
     wait = [r.wait_s for r in records]
     runtime = [r.runtime_s for r in records]
     return {
@@ -137,216 +153,189 @@ def aggregate_policy(records: List[JobRecord]) -> Dict[str, float]:
         "avg_wait_s": sum(wait) / len(wait),
         "avg_runtime_s": sum(runtime) / len(runtime),
         "total_carbon_kg": total_carbon,
-        "avg_carbon_g_per_job": (total_carbon * 1000.0) / len(records),
+        "total_ci_cost_g": total_ci_cost_g,
+        "avg_carbon_g_per_job": total_ci_cost_g / len(records),
+        "avg_ci_cost_g_per_job": total_ci_cost_g / len(records),
         "total_energy_kwh": total_energy,
+        "total_energy_wh": total_energy * 1000.0,
         "avg_energy_kwh_per_job": total_energy / len(records),
+        "avg_energy_wh_per_job": (total_energy * 1000.0) / len(records),
     }
 
 
-def export_per_job(records: List[JobRecord], policy: str, out_dir: Path) -> List[dict]:
-    import csv
-
+def export_per_job(records: List[JobRecord], policy: str, out_dir: Path) -> pd.DataFrame:
     rows: List[dict] = []
     for rec in records:
+        queue_seconds = rec.queue_seconds if rec.queue_seconds is not None else rec.wait_s
+        submit = rec.queued_at.isoformat()
+        start = rec.started_at.isoformat()
+        end = rec.ended_at.isoformat()
         rows.append(
             {
                 "policy": policy,
                 "job_id": rec.job_id,
                 "site": rec.site,
                 "node": rec.node,
-                "queued_at": rec.queued_at.isoformat(),
-                "started_at": rec.started_at.isoformat(),
-                "ended_at": rec.ended_at.isoformat(),
+                "queued_at": submit,
+                "started_at": start,
+                "ended_at": end,
+                "submit": submit,
+                "start": start,
+                "end": end,
                 "wait_s": rec.wait_s,
                 "runtime_s": rec.runtime_s,
-                "queue_seconds": rec.queue_seconds if rec.queue_seconds is not None else rec.wait_s,
+                "queue_seconds": queue_seconds,
                 "energy_kwh": rec.energy_kwh,
+                "energy_wh": rec.energy_wh,
                 "carbon_kg": rec.carbon_kg,
+                "carbon_g": rec.carbon_g,
+                "ci_cost": rec.ci_cost_g,
+                "ci_cost_g": rec.ci_cost_g,
+                "source": "kubernetes",
             }
         )
+
+    df = pd.DataFrame(rows)
+    if df.empty:
+        return df
+
     out_dir.mkdir(parents=True, exist_ok=True)
-    rows.sort(key=lambda r: r["job_id"])
-    with (out_dir / "per_job.csv").open("w", newline="") as handle:
-        writer = csv.DictWriter(handle, fieldnames=rows[0].keys())
-        writer.writeheader()
-        writer.writerows(rows)
-    return rows
+    df.sort_values(["policy", "job_id"], inplace=True)
+    df.to_csv(out_dir / "per_job.csv", index=False)
+    return df
 
 
-def export_summary(summary: Dict[str, Dict[str, float]], out_dir: Path) -> List[dict]:
-    import csv
+def export_summary(summary: Dict[str, Dict[str, float]], out_dir: Path) -> pd.DataFrame:
+    if not summary:
+        return pd.DataFrame()
 
     rows: List[dict] = []
     for policy, metrics in summary.items():
-        row = {"policy": policy}
-        row.update(metrics)
-        row["throughput_jobs_per_hour"] = metrics["jobs"] / (metrics["makespan_s"] / 3600.0)
-        rows.append(row)
+        record = {"policy": policy}
+        record.update(metrics)
+        makespan_hours = metrics["makespan_s"] / 3600.0 if metrics["makespan_s"] else np.nan
+        if makespan_hours and makespan_hours > 0:
+            record["throughput_jobs_per_hour"] = metrics["jobs"] / makespan_hours
+        else:
+            record["throughput_jobs_per_hour"] = np.nan
+        rows.append(record)
+
+    df = pd.DataFrame(rows)
+    column_order = [
+        "policy",
+        "jobs",
+        "makespan_s",
+        "avg_wait_s",
+        "avg_runtime_s",
+        "total_carbon_kg",
+        "total_ci_cost_g",
+        "avg_carbon_g_per_job",
+        "avg_ci_cost_g_per_job",
+        "total_energy_kwh",
+        "total_energy_wh",
+        "avg_energy_kwh_per_job",
+        "avg_energy_wh_per_job",
+        "throughput_jobs_per_hour",
+    ]
+    existing_cols = [col for col in column_order if col in df.columns]
+    df = df[existing_cols]
+
     out_dir.mkdir(parents=True, exist_ok=True)
-    with (out_dir / "summary.csv").open("w", newline="") as handle:
-        writer = csv.DictWriter(handle, fieldnames=rows[0].keys())
-        writer.writeheader()
-        writer.writerows(rows)
-    return rows
+    df.to_csv(out_dir / "summary.csv", index=False)
+    return df
 
 
-def export_pareto(summary_rows: List[dict], out_dir: Path) -> None:
+def export_figures(summary_df: pd.DataFrame, out_dir: Path) -> None:
+    if summary_df.empty:
+        return
+    if plt is None:  # pragma: no cover - convenience guard
+        raise RuntimeError(
+            "matplotlib is required to export figures. "
+            "Install it with `pip install matplotlib` in your environment."
+        )
+
     out_dir.mkdir(parents=True, exist_ok=True)
-    png_path = out_dir / "k8s_pareto_carbon_makespan.png"
-    if plt is None:
-        render_simple_png(summary_rows, png_path)
-    else:
-        fig, ax = plt.subplots(figsize=(6, 5))
-        for row in summary_rows:
-            color = "#1f77b4" if row["policy"] == "hetpolicy" else "#ff7f0e"
-            ax.scatter(row["total_carbon_kg"] * 1000.0, row["makespan_s"], s=120, c=color)
-            ax.annotate(row["policy"], (row["total_carbon_kg"] * 1000.0, row["makespan_s"]), textcoords="offset points", xytext=(5, 5))
-        ax.set_xlabel("Total carbon footprint (g)")
-        ax.set_ylabel("Makespan (s)")
-        ax.set_title("Kubernetes Replay Pareto")
-        ax.grid(alpha=0.3)
-        fig.tight_layout()
-        fig.savefig(png_path, dpi=200)
-        plt.close(fig)
+
+    ordered = summary_df.sort_values("total_ci_cost_g", na_position="last")
+
+    fig, ax = plt.subplots(figsize=(8, 5))
+    scatter = ax.scatter(
+        ordered["total_ci_cost_g"],
+        ordered["avg_wait_s"],
+        s=110,
+        c="tab:blue",
+        label="Kubernetes policies",
+    )
+    for _, row in ordered.iterrows():
+        ax.annotate(
+            row["policy"],
+            (row["total_ci_cost_g"], row["avg_wait_s"]),
+            textcoords="offset points",
+            xytext=(6, 6),
+        )
+    ax.set_xlabel("Total CI cost (g)")
+    ax.set_ylabel("Average wait (s)")
+    ax.set_title("Kubernetes Carbon vs Wait")
+    ax.grid(alpha=0.35)
+    ax.legend(handles=[scatter], loc="upper left")
+    fig.tight_layout()
+    fig.savefig(out_dir / "k8s_carbon_vs_wait.png", dpi=250)
+    plt.close(fig)
+
+    fig, ax = plt.subplots(figsize=(8, 5))
+    pareto_df = compute_pareto(summary_df, objectives=("total_ci_cost_g", "makespan_s"))
+    pareto_indices = set(pareto_df.index)
+
+    for idx, row in ordered.iterrows():
+        is_pareto = idx in pareto_indices
+        color = "tab:orange" if is_pareto else "lightgray"
+        ax.scatter(
+            row["total_ci_cost_g"],
+            row["makespan_s"],
+            s=120,
+            c=color,
+            edgecolor="black" if is_pareto else "none",
+        )
+        ax.annotate(
+            row["policy"],
+            (row["total_ci_cost_g"], row["makespan_s"]),
+            textcoords="offset points",
+            xytext=(6, 6),
+        )
+    ax.set_xlabel("Total CI cost (g)")
+    ax.set_ylabel("Makespan (s)")
+    ax.set_title("Kubernetes Carbon vs Makespan")
+    ax.grid(alpha=0.35)
+    fig.tight_layout()
+    fig.savefig(out_dir / "k8s_pareto_carbon_makespan.png", dpi=250)
+    plt.close(fig)
 
 
-def render_simple_png(summary_rows: Sequence[dict], out_path: Path, width: int = 640, height: int = 480) -> None:
-    """Generate a minimal PNG scatter plot using only the standard library."""
-    import struct
-    import zlib
 
-    margin = 60
-    data = bytearray([255] * width * height * 4)  # RGBA
+def compute_pareto(df: pd.DataFrame, objectives: Tuple[str, str]) -> pd.DataFrame:
+    cols = list(objectives)
+    if df.empty:
+        return df.copy()
+    valid = df.dropna(subset=cols)
+    if valid.empty:
+        return valid
 
-    carbons = [row["total_carbon_kg"] * 1000.0 for row in summary_rows]
-    makespans = [row["makespan_s"] for row in summary_rows]
+    values = valid[cols].to_numpy(dtype=float)
+    n = len(valid)
+    mask = np.ones(n, dtype=bool)
 
-    min_c, max_c = min(carbons), max(carbons)
-    min_m, max_m = min(makespans), max(makespans)
-    if max_c - min_c < 1e-9:
-        max_c += 1
-        min_c -= 1
-    if max_m - min_m < 1e-9:
-        max_m += 1
-        min_m -= 1
+    for i in range(n):
+        if not mask[i]:
+            continue
+        better = np.all(values <= values[i], axis=1) & np.any(values < values[i], axis=1)
+        if better.any():
+            mask[i] = False
+            continue
+        dominates = np.all(values[i] <= values, axis=1) & np.any(values[i] < values, axis=1)
+        mask[dominates] = False
+        mask[i] = True
 
-    def transform(c, m):
-        x = margin + int((c - min_c) / (max_c - min_c) * (width - 2 * margin))
-        y = height - margin - int((m - min_m) / (max_m - min_m) * (height - 2 * margin))
-        return x, y
-
-    def put_pixel(x, y, rgba):
-        if 0 <= x < width and 0 <= y < height:
-            idx = (y * width + x) * 4
-            data[idx:idx + 4] = rgba
-
-    def draw_line(x0, y0, x1, y1, rgba):
-        dx = abs(x1 - x0)
-        dy = -abs(y1 - y0)
-        sx = 1 if x0 < x1 else -1
-        sy = 1 if y0 < y1 else -1
-        err = dx + dy
-        while True:
-            put_pixel(x0, y0, rgba)
-            if x0 == x1 and y0 == y1:
-                break
-            e2 = 2 * err
-            if e2 >= dy:
-                err += dy
-                x0 += sx
-            if e2 <= dx:
-                err += dx
-                y0 += sy
-
-    # Draw axes
-    draw_line(margin, height - margin, width - margin, height - margin, (0, 0, 0, 255))
-    draw_line(margin, margin, margin, height - margin, (0, 0, 0, 255))
-
-    # Plot points
-    colors = {
-        "hetpolicy": (31, 119, 180, 255),
-        "carbonscaler": (255, 127, 14, 255),
-    }
-    for row in summary_rows:
-        x, y = transform(row["total_carbon_kg"] * 1000.0, row["makespan_s"])
-        color = colors.get(row["policy"], (0, 0, 0, 255))
-        for dx in range(-4, 5):
-            for dy in range(-4, 5):
-                if dx * dx + dy * dy <= 16:
-                    put_pixel(x + dx, y + dy, color)
-
-    # Simple labels near the points
-    for row in summary_rows:
-        x, y = transform(row["total_carbon_kg"] * 1000.0, row["makespan_s"])
-        text = row["policy"]
-        for i, ch in enumerate(text):
-            # crude 5x7 font (ASCII) using built-in patterns
-            glyph = _FONT_5x7.get(ch.upper())
-            if not glyph:
-                continue
-            for dy, line in enumerate(glyph):
-                for dx, on in enumerate(line):
-                    if on == "1":
-                        put_pixel(x + 8 + dx + i * 6, y - dy - 4, (0, 0, 0, 255))
-
-    # encode PNG
-    raw = bytearray()
-    stride = width * 4
-    for y in range(height):
-        raw.append(0)
-        raw.extend(data[y * stride:(y + 1) * stride])
-    compressed = zlib.compress(bytes(raw), level=9)
-
-    def chunk(tag: bytes, payload: bytes) -> bytes:
-        return struct.pack(">I", len(payload)) + tag + payload + struct.pack(">I", zlib.crc32(tag + payload) & 0xffffffff)
-
-    png = b"\x89PNG\r\n\x1a\n"
-    ihdr = struct.pack(">IIBBBBB", width, height, 8, 6, 0, 0, 0)
-    png += chunk(b"IHDR", ihdr)
-    png += chunk(b"IDAT", compressed)
-    png += chunk(b"IEND", b"")
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    out_path.write_bytes(png)
-
-
-FONT_RAW = {
-    "A": ["01110", "10001", "10001", "11111", "10001", "10001", "10001"],
-    "B": ["11110", "10001", "11110", "10001", "10001", "10001", "11110"],
-    "C": ["01111", "10000", "10000", "10000", "10000", "10000", "01111"],
-    "E": ["11111", "10000", "11110", "10000", "10000", "10000", "11111"],
-    "H": ["10001", "10001", "11111", "10001", "10001", "10001", "10001"],
-    "I": ["01110", "00100", "00100", "00100", "00100", "00100", "01110"],
-    "L": ["10000", "10000", "10000", "10000", "10000", "10000", "11111"],
-    "N": ["10001", "11001", "10101", "10011", "10001", "10001", "10001"],
-    "O": ["01110", "10001", "10001", "10001", "10001", "10001", "01110"],
-    "P": ["11110", "10001", "11110", "10000", "10000", "10000", "10000"],
-    "R": ["11110", "10001", "11110", "10100", "10010", "10001", "10001"],
-    "S": ["01111", "10000", "10000", "01110", "00001", "00001", "11110"],
-    "T": ["11111", "00100", "00100", "00100", "00100", "00100", "00100"],
-    "Y": ["10001", "01010", "00100", "00100", "00100", "00100", "00100"],
-}
-
-_FONT_5x7 = {ch: rows for ch, rows in FONT_RAW.items()}
-
-
-def compute_pareto(rows: Sequence[dict], objectives: Tuple[str, str]) -> List[dict]:
-    obj1, obj2 = objectives
-    pareto = []
-    for row in rows:
-        dominated = False
-        for other in rows:
-            if other is row:
-                continue
-            if (
-                other[obj1] <= row[obj1]
-                and other[obj2] <= row[obj2]
-                and (other[obj1] < row[obj1] or other[obj2] < row[obj2])
-            ):
-                dominated = True
-                break
-        if not dominated:
-            pareto.append(row.copy())
-    return pareto
+    return valid.loc[mask]
 
 
 def run(
@@ -356,6 +345,7 @@ def run(
     workloads_path: Path | str = Path("kubenergysched/config/workloads.csv"),
     e_ref: float = DEFAULT_E_REF,
     c_ref: float = DEFAULT_C_REF,
+    figures_dir: Path | str | None = None,
 ) -> Dict[str, List[dict]]:
     het_path = Path(het_path)
     carb_path = Path(carb_path)
@@ -365,36 +355,38 @@ def run(
     durations = load_workload_durations(workloads_path)
 
     summaries: Dict[str, Dict[str, float]] = {}
-    combined_per_job: List[dict] = []
+    combined_frames: List[pd.DataFrame] = []
 
     for policy, path in (("hetpolicy", het_path), ("carbonscaler", carb_path)):
         recs = pick_latest_records(path, policy)
         jobs = build_records(recs, durations, e_ref, c_ref)
-        rows = export_per_job(jobs, policy, output_dir / policy)
-        combined_per_job.extend(rows)
+        per_job_df = export_per_job(jobs, policy, output_dir / policy)
+        if not per_job_df.empty:
+            combined_frames.append(per_job_df)
         summaries[policy] = aggregate_policy(jobs)
 
     summary_dir = output_dir / "summary"
-    summary_rows = export_summary(summaries, summary_dir)
+    summary_df = export_summary(summaries, summary_dir)
 
-    pareto_rows = compute_pareto(summary_rows, objectives=("total_carbon_kg", "makespan_s"))
-    if pareto_rows:
-        with (summary_dir / "pareto.csv").open("w", newline="") as handle:
-            writer = csv.DictWriter(handle, fieldnames=pareto_rows[0].keys())
-            writer.writeheader()
-            writer.writerows(pareto_rows)
+    pareto_df = compute_pareto(summary_df, objectives=("total_ci_cost_g", "avg_wait_s"))
+    if not pareto_df.empty:
+        pareto_df.to_csv(summary_dir / "pareto.csv", index=False)
 
-    export_pareto(summary_rows, output_dir / "figures")
+    if figures_dir is None:
+        figures_dir = output_dir / "figures"
+    export_figures(summary_df, Path(figures_dir))
 
-    if combined_per_job:
-        combined_per_job.sort(key=lambda r: (r["policy"], r["job_id"]))
-        with (output_dir / "per_job_combined.csv").open("w", newline="") as handle:
-            writer = csv.DictWriter(handle, fieldnames=combined_per_job[0].keys())
-            writer.writeheader()
-            writer.writerows(combined_per_job)
+    combined_df = pd.concat(combined_frames, ignore_index=True) if combined_frames else pd.DataFrame()
+    if not combined_df.empty:
+        combined_df.sort_values(["policy", "job_id"], inplace=True)
+        combined_df.to_csv(output_dir / "per_job_combined.csv", index=False)
 
     print("Wrote outputs under", output_dir.resolve())
-    return {"summary": summary_rows, "pareto": pareto_rows, "per_job": combined_per_job}
+    return {
+        "summary": summary_df.to_dict("records"),
+        "pareto": pareto_df.to_dict("records"),
+        "per_job": combined_df.to_dict("records"),
+    }
 
 
 def main() -> None:
@@ -405,6 +397,7 @@ def main() -> None:
     parser.add_argument("--output", type=Path, default=Path("kubenergysched/results_k8s"))
     parser.add_argument("--eref", type=float, default=DEFAULT_E_REF)
     parser.add_argument("--cref", type=float, default=DEFAULT_C_REF)
+    parser.add_argument("--figures-dir", type=Path, default=None)
     args = parser.parse_args()
 
     run(
@@ -414,6 +407,7 @@ def main() -> None:
         workloads_path=args.workloads,
         e_ref=args.eref,
         c_ref=args.cref,
+        figures_dir=args.figures_dir,
     )
 
 
