@@ -13,6 +13,7 @@ from typing import Dict, Iterable, List, Tuple
 
 import numpy as np
 import pandas as pd
+import math
 
 try:
     import matplotlib.pyplot as plt
@@ -123,6 +124,11 @@ def build_records(rec_list: Iterable[dict],
 
         energy_kwh = float(rec.get("e_norm", 0.0)) * e_ref
         carbon_kg = float(rec.get("c_norm", 0.0)) * c_ref
+        if (carbon_kg == 0 or not math.isfinite(carbon_kg)) and rec.get("ci_cost") is not None:
+            try:
+                carbon_kg = float(rec.get("ci_cost")) / 1000.0
+            except (TypeError, ValueError):
+                carbon_kg = 0.0
         queue_seconds = rec.get("queue_seconds")
         results.append(
             JobRecord(

@@ -841,9 +841,16 @@ func buildScheduler(policy string, deps engine.Deps) (scheduler, error) {
 	switch policyName := normalizePolicy(policy); policyName {
 	case "hetpolicy":
 		cfg := hetpolicy.DefaultConfig()
-		cfg.Alpha = 0.58
-		cfg.Beta = 0.21
-		cfg.Gamma = 0.21
+		cfg.Alpha = parseEnvFloat("HETPOLICY_ALPHA", 0.85)
+		cfg.Beta = parseEnvFloat("HETPOLICY_BETA", 0.1)
+		cfg.Gamma = parseEnvFloat("HETPOLICY_GAMMA", 0.05)
+		cfg.Delta = parseEnvFloat("HETPOLICY_DELTA", cfg.Delta)
+		if v := parseEnvFloat("HETPOLICY_MAX_RUNTIME", cfg.MaxRuntime); v > 0 {
+			cfg.MaxRuntime = v
+		}
+		if v := parseEnvFloat("HETPOLICY_MAX_DATA_MOVEMENT", cfg.MaxDataMovement); v > 0 {
+			cfg.MaxDataMovement = v
+		}
 		cfg.Now = deps.Now
 		return newHetScheduler(cfg, deps), nil
 	case "carbonscaler":

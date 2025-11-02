@@ -183,20 +183,33 @@ func (p *Policy) scoreWeighted(items []candidateMetrics) core.Scores {
 		scores[""] = math.Inf(1)
 		return scores
 	}
-	slack := 0.02 + (1-clamp(p.Cfg.Alpha, 0, 1))*0.1
+	alphaClamp := clamp(p.Cfg.Alpha, 0, 1)
+	slack := 0.01 + (1-alphaClamp)*0.05
 	for _, it := range items {
 		if !it.feasible {
 			continue
 		}
+		queueHat := clamp(it.queueHat, 0, 1)
 		carbonPenalty := it.co2Hat
-		allowed := minCarbon * (1 + slack + p.Cfg.Gamma*clamp(it.queueHat, 0, 1))
+		carbonPenalty *= 1 + 0.1*queueHat
+
+		queueRelax := 0.12 * queueHat
+		allowed := minCarbon * (1 + slack + queueRelax)
 		if it.co2 > allowed {
-			bump := 0.25 + 0.35*clamp(p.Cfg.Alpha, 0, 1)
+			overshoot := (it.co2 - allowed) / allowed
+			if overshoot < 0 {
+				overshoot = 0
+			}
+			bump := (0.35 + 0.45*alphaClamp) * (1 + overshoot)
 			carbonPenalty += bump
+		}
+		queueTerm := queueHat
+		if queueTerm > 0 {
+			queueTerm = math.Pow(queueTerm, 0.6)
 		}
 		score := p.Cfg.Alpha*carbonPenalty +
 			p.Cfg.Beta*it.runtimeHat +
-			p.Cfg.Gamma*it.queueHat +
+			p.Cfg.Gamma*queueTerm +
 			p.Cfg.Delta*it.moveHat
 		scores[it.id] = score
 	}
