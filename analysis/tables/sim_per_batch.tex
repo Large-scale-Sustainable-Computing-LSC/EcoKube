@@ -1,18 +1,25 @@
-\begin{tabular}{lrrllll}
-\toprule
-Policy & Batch & CI Weight & Total CFP [gCO2e] & Avg Wait [s] & Makespan [s] & Pareto Front \\
-\midrule
-HetPolicy & 200 & 0.400000 & 2.855 & 2020.000 & 14400.000 & True \\
-KEIDS & 200 & 0.400000 & 3.046 & 2363.750 & 14700.000 & False \\
-Kubernetes base & 200 & 0.400000 & 3.351 & 4320.000 & 15600.000 & False \\
-TOPSIS & 200 & 0.400000 & 3.008 & 2407.500 & 16200.000 & False \\
-HetPolicy & 500 & 0.400000 & 2.855 & 2020.000 & 14400.000 & True \\
-KEIDS & 500 & 0.400000 & 3.046 & 2363.750 & 14700.000 & False \\
-Kubernetes base & 500 & 0.400000 & 3.351 & 4320.000 & 15600.000 & False \\
-TOPSIS & 500 & 0.400000 & 3.008 & 2407.500 & 16200.000 & False \\
-HetPolicy & 1000 & 0.400000 & 2.855 & 2020.000 & 14400.000 & True \\
-KEIDS & 1000 & 0.400000 & 3.046 & 2363.750 & 14700.000 & False \\
-Kubernetes base & 1000 & 0.400000 & 3.351 & 4320.000 & 15600.000 & False \\
-TOPSIS & 1000 & 0.400000 & 3.008 & 2407.500 & 16200.000 & False \\
-\bottomrule
-\end{tabular}
+\begin{table}[h!]
+  \centering
+  \renewcommand{\arraystretch}{1.12}
+  \caption{Simulation pathway: per-batch summary for HetPolicy, TOPSIS, KEIDS, and the Kubernetes baseline.}
+  \label{tab:sim-per-batch}
+  \small
+  \begin{tabular}{lcccccc}
+  \toprule
+  Policy & Batch & CI Weight & Total CFP [gCO2e] & Avg Wait [s] & Makespan [s] & Pareto Front \\
+  \midrule
+  HetPolicy & 200 & 0.400 & 2.855 & 2020.000 & 14400.000 & True \\
+  KEIDS & 200 & 0.400 & 3.046 & 2363.750 & 14700.000 & False \\
+  Kubernetes base & 200 & 0.400 & 3.351 & 4320.000 & 15600.000 & False \\
+  TOPSIS & 200 & 0.400 & 3.008 & 2407.500 & 16200.000 & False \\
+  HetPolicy & 500 & 0.400 & 2.855 & 2020.000 & 14400.000 & True \\
+  KEIDS & 500 & 0.400 & 3.046 & 2363.750 & 14700.000 & False \\
+  Kubernetes base & 500 & 0.400 & 3.351 & 4320.000 & 15600.000 & False \\
+  TOPSIS & 500 & 0.400 & 3.008 & 2407.500 & 16200.000 & False \\
+  HetPolicy & 1000 & 0.400 & 2.855 & 2020.000 & 14400.000 & True \\
+  KEIDS & 1000 & 0.400 & 3.046 & 2363.750 & 14700.000 & False \\
+  Kubernetes base & 1000 & 0.400 & 3.351 & 4320.000 & 15600.000 & False \\
+  TOPSIS & 1000 & 0.400 & 3.008 & 2407.500 & 16200.000 & False \\
+  \bottomrule
+  \end{tabular}
+\end{table}

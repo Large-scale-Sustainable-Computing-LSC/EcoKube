@@ -217,16 +217,32 @@ def build_sim_tables(
     return TableResults(per_batch=per_batch_df, overall=overall_df)
 
 
-def _to_latex(df: pd.DataFrame, float_fmt: str = "{:.3f}") -> str:
+def _styled_table(
+    df: pd.DataFrame,
+    caption: str,
+    label: str,
+    column_format: str,
+    float_cols: Iterable[str],
+) -> str:
     formatted = df.copy()
-    for column in ["Total CFP [gCO2e]", "Avg Wait [s]", "Makespan [s]"]:
+    for column in float_cols:
         if column in formatted:
-            formatted[column] = formatted[column].apply(
-                lambda x: float_fmt.format(x) if pd.notna(x) else "nan"
-            )
+            formatted[column] = formatted[column].apply(lambda x: f"{x:.3f}")
     if "Pareto Front" in formatted:
         formatted["Pareto Front"] = formatted["Pareto Front"].map({True: "True", False: "False"})
-    return formatted.to_latex(index=False, escape=False)
+
+    latex_body = formatted.to_latex(index=False, escape=False, column_format=column_format)
+    indented_body = "\n".join("  " + line for line in latex_body.splitlines())
+    return (
+        "\\begin{table}[h!]\n"
+        "  \\centering\n"
+        "  \\renewcommand{\\arraystretch}{1.12}\n"
+        f"  \\caption{{{caption}}}\n"
+        f"  \\label{{{label}}}\n"
+        "  \\small\n"
+        f"{indented_body}\n"
+        "\\end{table}\n"
+    )
 
 
 def main() -> None:
@@ -274,14 +290,46 @@ def main() -> None:
     )
 
     args.out_dir.mkdir(parents=True, exist_ok=True)
-    (args.out_dir / "sim_per_batch.tex").write_text(_to_latex(tables.per_batch))
-    (args.out_dir / "sim_overall.tex").write_text(_to_latex(tables.overall))
+    per_batch_columns = [
+        "Policy",
+        "Batch",
+        "CI Weight",
+        "Total CFP [gCO2e]",
+        "Avg Wait [s]",
+        "Makespan [s]",
+        "Pareto Front",
+    ]
+    per_batch_table = tables.per_batch[per_batch_columns]
+    per_batch_tex = _styled_table(
+        per_batch_table,
+        caption="Simulation pathway: per-batch summary for HetPolicy, TOPSIS, KEIDS, and the Kubernetes baseline.",
+        label="tab:sim-per-batch",
+        column_format="lcccccc",
+        float_cols=["CI Weight", "Total CFP [gCO2e]", "Avg Wait [s]", "Makespan [s]"],
+    )
+    (args.out_dir / "sim_per_batch.tex").write_text(per_batch_tex)
+
+    overall_columns = [
+        "Policy",
+        "Total CFP [gCO2e]",
+        "Avg Wait [s]",
+        "Makespan [s]",
+    ]
+    overall_table = tables.overall[overall_columns]
+    overall_tex = _styled_table(
+        overall_table,
+        caption="Simulation pathway: overall summary across batches.",
+        label="tab:sim-overall",
+        column_format="lccc",
+        float_cols=["Total CFP [gCO2e]", "Avg Wait [s]", "Makespan [s]"],
+    )
+    (args.out_dir / "sim_overall.tex").write_text(overall_tex)
 
     print(f"[generate_sim_tables] wrote tables to {args.out_dir}")
     print("\nPer-batch:\n")
-    print(_to_latex(tables.per_batch))
+    print(per_batch_tex)
     print("\nOverall:\n")
-    print(_to_latex(tables.overall))
+    print(overall_tex)
 
 
 if __name__ == "__main__":
