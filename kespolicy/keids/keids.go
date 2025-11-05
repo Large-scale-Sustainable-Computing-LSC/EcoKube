@@ -23,7 +23,7 @@ type Policy struct {
 }
 
 // DefaultWeights returns the calibrated α/β/γ triple from the document.
-func DefaultWeights() Weights { return Weights{Alpha: 0.58, Beta: 0.21, Gamma: 0.21} }
+func DefaultWeights() Weights { return Weights{Alpha: 0.45, Beta: 0.35, Gamma: 0.20} }
 
 // Name exposes the scheduler identifier in simulator traces.
 func (p *Policy) Name() string { return "keids" }

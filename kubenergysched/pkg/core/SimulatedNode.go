@@ -2,6 +2,7 @@ package core
 
 import (
 	"math"
+	"strings"
 	"time"
 )
 
@@ -36,11 +37,27 @@ func NewNode(name string, cpu, mem, ci float64) *SimulatedNode {
 }
 
 func (n *SimulatedNode) CanAccept(w Workload) bool {
-	return n.AvailableCPU >= w.CPU && n.AvailableMemory >= w.Memory
+	if n.AvailableCPU < w.CPU || n.AvailableMemory < w.Memory {
+		return false
+	}
+	if w.Labels != nil && strings.EqualFold(w.Labels["requires_gpu"], "true") {
+		if n.Labels == nil || !strings.EqualFold(n.Labels["gpu"], "true") {
+			return false
+		}
+	}
+	return true
 }
 
 func (n *SimulatedNode) CanAcceptJob(j Job) bool {
-	return n.AvailableCPU >= j.CPUReq && n.AvailableMemory >= j.MemReq
+	if n.AvailableCPU < j.CPUReq || n.AvailableMemory < j.MemReq {
+		return false
+	}
+	if j.Labels != nil && strings.EqualFold(j.Labels["requires_gpu"], "true") {
+		if n.Labels == nil || !strings.EqualFold(n.Labels["gpu"], "true") {
+			return false
+		}
+	}
+	return true
 }
 
 func (n *SimulatedNode) Reserve(w Workload, start time.Time) {

@@ -18,6 +18,8 @@ spec:
               value: "workloads"
             - name: SITES_PATH
               value: "/etc/ci-aware/sites.json"
+            - name: CIW_NODE_CAP
+              value: "{{ .Values.ciAware.nodeCap | default 100 }}"
           volumeMounts:
             - name: sites
               mountPath: /etc/ci-aware

@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -92,6 +93,7 @@ type controller struct {
 	scheduler scheduler
 	deps      engine.Deps
 	writer    *jsonlWriter
+	nodeCap   int
 
 	podLister   corelisters.PodLister
 	podInformer cache.SharedIndexInformer
@@ -115,6 +117,7 @@ func main() {
 	sitesPath := env("SITES_PATH", "/etc/ci-aware/sites.json")
 	runID := os.Getenv("TRACE_RUN_ID")
 	policyName := env("SCHEDULER_POLICY", "hetpolicy")
+	nodeCap := parseEnvInt("CIW_NODE_CAP", 0)
 
 	theta := types.Theta{
 		ThetaE:      0.58,
@@ -184,6 +187,7 @@ func main() {
 		queue:       workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), "ciw-pods"),
 		states:      map[string]*podState{},
 		now:         time.Now,
+		nodeCap:     nodeCap,
 	}
 
 	podInformer.AddEventHandler(cache.ResourceEventHandlerFuncs{
@@ -493,6 +497,12 @@ func (c *controller) snapshot(ctx context.Context) (*clusterSnapshot, error) {
 			}
 		}
 		views = append(views, nodeView{Snapshot: snap, Sim: sim, QueueSeconds: queue, CINorm: cinorm})
+	}
+	if c.nodeCap > 0 && len(views) > c.nodeCap {
+		sort.SliceStable(views, func(i, j int) bool {
+			return views[i].Snapshot.ID < views[j].Snapshot.ID
+		})
+		views = views[:c.nodeCap]
 	}
 	return buildClusterSnapshot(views), nil
 }
@@ -841,9 +851,9 @@ func buildScheduler(policy string, deps engine.Deps) (scheduler, error) {
 	switch policyName := normalizePolicy(policy); policyName {
 	case "hetpolicy":
 		cfg := hetpolicy.DefaultConfig()
-		cfg.Alpha = parseEnvFloat("HETPOLICY_ALPHA", 0.85)
-		cfg.Beta = parseEnvFloat("HETPOLICY_BETA", 0.1)
-		cfg.Gamma = parseEnvFloat("HETPOLICY_GAMMA", 0.05)
+		cfg.Alpha = parseEnvFloat("HETPOLICY_ALPHA", 0.72)
+		cfg.Beta = parseEnvFloat("HETPOLICY_BETA", 0.18)
+		cfg.Gamma = parseEnvFloat("HETPOLICY_GAMMA", 0.10)
 		cfg.Delta = parseEnvFloat("HETPOLICY_DELTA", cfg.Delta)
 		if v := parseEnvFloat("HETPOLICY_MAX_RUNTIME", cfg.MaxRuntime); v > 0 {
 			cfg.MaxRuntime = v
@@ -880,6 +890,15 @@ func parseEnvFloat(key string, def float64) float64 {
 	if v := os.Getenv(key); v != "" {
 		if f, err := strconv.ParseFloat(v, 64); err == nil {
 			return f
+		}
+	}
+	return def
+}
+
+func parseEnvInt(key string, def int) int {
+	if v := os.Getenv(key); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			return n
 		}
 	}
 	return def

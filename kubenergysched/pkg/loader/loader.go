@@ -66,6 +66,23 @@ func LoadNodesFromCSV(path string) []*core.SimulatedNode {
 			}
 			n.Metadata["peak_power_w"] = rec[5]
 		}
+		if len(rec) >= 7 && strings.TrimSpace(rec[6]) != "" {
+			if n.Labels == nil {
+				n.Labels = map[string]string{}
+			}
+			for _, token := range strings.Split(rec[6], ",") {
+				token = strings.TrimSpace(token)
+				if token == "" {
+					continue
+				}
+				parts := strings.SplitN(token, "=", 2)
+				if len(parts) == 2 {
+					n.Labels[strings.TrimSpace(parts[0])] = strings.TrimSpace(parts[1])
+				} else {
+					n.Labels[token] = "true"
+				}
+			}
+		}
 		nodes = append(nodes, n)
 	}
 	return nodes
@@ -106,6 +123,28 @@ func LoadWorkloadsFromCSV(path string) []core.Workload {
 			if preferred != "" {
 				labels = map[string]string{"preferred_site": preferred}
 			}
+		}
+		resourceClass := ""
+		if len(rec) >= 8 {
+			resourceClass = strings.TrimSpace(rec[7])
+			if resourceClass != "" {
+				if labels == nil {
+					labels = map[string]string{}
+				}
+				labels["resource_class"] = resourceClass
+			}
+		}
+		if len(rec) >= 9 && strings.TrimSpace(rec[8]) != "" {
+			if v, err := strconv.Atoi(strings.TrimSpace(rec[8])); err == nil && v > 0 {
+				if labels == nil {
+					labels = map[string]string{}
+				}
+				labels["requires_gpu"] = "true"
+				labels["gpu_count"] = strconv.Itoa(v)
+			}
+		}
+		if tag == "" && resourceClass != "" {
+			tag = resourceClass
 		}
 
 		wls = append(wls, core.Workload{

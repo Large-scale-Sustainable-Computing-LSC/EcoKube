@@ -1,6 +1,7 @@
 import csv
 import os
 import time
+from datetime import datetime, timezone
 
 from kubernetes import client, config
 
@@ -70,6 +71,20 @@ def to_gi(mem_val):
         return f"{max(val, 0.25):g}Gi"
 
 
+def parse_ts(value):
+    if not value:
+        return None
+    value = value.strip()
+    if not value:
+        return None
+    try:
+        if value.endswith("Z"):
+            value = value[:-1] + "+00:00"
+        return datetime.fromisoformat(value).astimezone(timezone.utc)
+    except Exception:
+        return None
+
+
 def job_from_row(row, index=None):
     if index is not None:
         jid = str(index).zfill(3)
@@ -119,6 +134,17 @@ def job_from_row(row, index=None):
             )
         )
 
+    resource_class = row.get("resource_class", "").strip().lower()
+    gpu_count = 0
+    try:
+        gpu_count = int(float(row.get("gpu_count", "0") or 0))
+    except Exception:
+        gpu_count = 0
+    if gpu_count > 0:
+        gpu_value = str(max(gpu_count, 1))
+        for res_list in (task_container.resources.requests, task_container.resources.limits):
+            res_list["nvidia.com/gpu"] = gpu_value
+
     if ENABLE_PROM:
         metrics_container = client.V1Container(
             name="metrics-agent",
@@ -136,7 +162,13 @@ def job_from_row(row, index=None):
         )
         containers.append(metrics_container)
 
+    node_selector = None
+    if resource_class == "gpu" or gpu_count > 0:
+        node_selector = {"gpu": "true"}
+
     podspec_kwargs = dict(restart_policy="Never", containers=containers, affinity=affinity)
+    if node_selector:
+        podspec_kwargs["node_selector"] = node_selector
     if TARGET_SCHEDULER_NAME:
         podspec_kwargs["scheduler_name"] = TARGET_SCHEDULER_NAME
     if ENABLE_PROM:
@@ -149,6 +181,10 @@ def job_from_row(row, index=None):
             annotations["ciw/max_defer_s"] = str(int(float(dur_str) * DEFAULT_MAX_DEFER_FRAC))
         except Exception:
             pass
+    preferred_site = (row.get("preferred_site") or "").strip()
+    if preferred_site:
+        annotations["ciw/preferred_site"] = preferred_site
+
     if ENABLE_PROM:
         annotations.update(
             {
@@ -164,7 +200,9 @@ def job_from_row(row, index=None):
         "ciw/workload_id": jid,
         "ciw/eligible": "true",
     }
-
+    if resource_class:
+        labels["ciw/resource_class"] = resource_class
+    
     template = client.V1PodTemplateSpec(
         metadata=client.V1ObjectMeta(labels=labels, annotations=annotations),
         spec=podspec,
@@ -194,14 +232,27 @@ def main():
     with open(csv_path, newline="") as handle:
         reader = csv.DictReader(handle)
         count = 0
+        prev_submit = None
         for row in reader:
             if count >= MAX_JOBS:
                 break
+            submit_at = parse_ts(row.get("submit"))
+            if prev_submit is not None and submit_at is not None:
+                delta = (submit_at - prev_submit).total_seconds()
+                if delta > 0:
+                    time.sleep(delta)
+            elif submit_at is None and prev_submit is not None:
+                time.sleep(SLEEP_BETWEEN)
             job, jid = job_from_row(row, index=count)
             api.create_namespaced_job(namespace=NAMESPACE, body=job)
             print(f"submitted {jid}")
             count += 1
-            time.sleep(SLEEP_BETWEEN)
+            if submit_at is not None:
+                prev_submit = submit_at
+            else:
+                prev_submit = None
+            if submit_at is None and prev_submit is None:
+                time.sleep(SLEEP_BETWEEN)
 
 
 if __name__ == "__main__":

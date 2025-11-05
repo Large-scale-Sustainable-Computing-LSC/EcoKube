@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"math/rand"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -27,6 +28,11 @@ type SummaryRow struct {
 	Policy            string  `json:"policy"`
 	CIWeight          float64 `json:"ci_weight"`
 	BatchSize         int     `json:"batch_size"`
+	JobCount          int     `json:"job_count"`
+	ArrivalRate       float64 `json:"arrival_rate"`
+	WarmupMinutes     float64 `json:"warmup_minutes"`
+	ThetaE            float64 `json:"theta_e"`
+	ThetaC            float64 `json:"theta_c"`
 	TotalCICostG      float64 `json:"total_ci_cost_g"`
 	AvgCIPerJobG      float64 `json:"avg_ci_per_job_g"`
 	CFPgPerCPUHour    float64 `json:"cfp_g_per_cpu_hour"`
@@ -59,6 +65,14 @@ func main() {
 	var alphaMass float64
 	var lookaheadMin int
 	var tracePath string
+	var jobCountsFlag string
+	var arrivalRatesFlag string
+	var arrivalMode string
+	var burstProb float64
+	var burstMultiplier float64
+	var warmupMin float64
+	var thetaPath string
+	var arrivalSeed int64
 
 	flag.StringVar(&nodesCSV, "nodes-csv", "config/nodes.csv", "path to nodes CSV")
 	flag.StringVar(&wlCSV, "wl-csv", "config/workloads.csv", "path to workloads CSV")
@@ -66,6 +80,11 @@ func main() {
 	flag.StringVar(&outDir, "outdir", "", "output directory for per-run CSVs and summary (default kubenergysched/results)")
 	flag.StringVar(&ciWeightsFlag, "ci-weights", "0.4", "comma-separated base CI weights to sweep")
 	flag.StringVar(&batchSizesFlag, "batch-sizes", "64", "comma-separated batch sizes to sweep")
+	flag.StringVar(&jobCountsFlag, "job-counts", "", "comma-separated job counts to evaluate (defaults to workload size)")
+	flag.StringVar(&arrivalRatesFlag, "arrival-rates", "1.0", "comma-separated arrival rates (jobs/minute)")
+	flag.StringVar(&arrivalMode, "arrival-mode", "poisson", "arrival process: poisson or bursty")
+	flag.Float64Var(&burstProb, "arrival-burst-probability", 0.1, "burst probability when arrival-mode=bursty")
+	flag.Float64Var(&burstMultiplier, "arrival-burst-multiplier", 3.0, "rate multiplier applied during bursts")
 	flag.StringVar(&durationsFlag, "durations", "", "override job durations (seconds) as comma-separated list; assigned round-robin")
 	flag.Float64Var(&durScale, "dur-scale", 1.0, "multiply all job durations by this factor")
 	flag.Float64Var(&alphaMass, "alpha-mass", 1.0, "adaptive carbon weight multiplier for big jobs (0=off)")
@@ -75,6 +94,9 @@ func main() {
 	flag.StringVar(&hetModesFlag, "het-modes", "het-weighted-sum", "comma-separated hetero policy modes (weighted-sum, epsilon-constraint, greedy-normalised)")
 	var hetWeightsFlag string
 	flag.StringVar(&hetWeightsFlag, "het-weights", "", "comma-separated alpha:beta:gamma sets for hetpolicy (e.g. '0.6:0.3:0.1'); leave empty or 'auto' to calibrate per CI weight")
+	flag.Float64Var(&warmupMin, "warmup-min", 0, "warm-up window in minutes excluded from metrics (simulation only)")
+	flag.StringVar(&thetaPath, "theta-yaml", "", "optional Theta YAML to align simulator parameters with the Kubernetes controller")
+	flag.Int64Var(&arrivalSeed, "arrival-seed", 1337, "seed for synthetic arrival schedules")
 	flag.Parse()
 
 	if outDir == "" {
@@ -130,274 +152,342 @@ func main() {
 	templateWl := make([]core.Workload, len(workloads))
 	copy(templateWl, workloads)
 
+	jobCounts := parseIntSlice(jobCountsFlag)
+	if len(jobCounts) == 0 {
+		jobCounts = []int{len(templateWl)}
+	}
+	arrivalRates := parseFloatSlice(arrivalRatesFlag)
+	if len(arrivalRates) == 0 {
+		arrivalRates = []float64{1.0}
+	}
+	arrivalMode = strings.ToLower(strings.TrimSpace(arrivalMode))
+	if arrivalMode != "bursty" {
+		arrivalMode = "poisson"
+	}
+	burstProb = clamp01(burstProb)
+	if burstMultiplier <= 0 {
+		burstMultiplier = 3.0
+	}
+	warmupDuration := time.Duration(warmupMin * float64(time.Minute))
+	if warmupDuration < 0 {
+		warmupDuration = 0
+	}
+
+	var theta loader.Theta
+	var haveTheta bool
+	if thetaPath != "" {
+		t, err := loader.LoadTheta(thetaPath)
+		if err != nil {
+			log.Fatalf("load theta %s: %v", thetaPath, err)
+		}
+		theta = t
+		haveTheta = true
+	}
+
 	var allSummaries []SummaryRow
+	var templateStart time.Time
+	if len(templateWl) > 0 {
+		templateStart = templateWl[0].SubmitTime
+	}
 
-	for _, ciW := range ciWeights {
-		for _, bs := range batchSizes {
-			specs := []struct {
-				name string
-				run  func([]core.Workload) ([]core.LogEntry, float64)
-			}{
-				{
-					name: "k8s",
-					run: func(w []core.Workload) ([]core.LogEntry, float64) {
-						const policyID = "k8s"
-						nodes := loader.LoadNodesFromCSV(nodesCSV)
-						sites := loader.LoadSitesFromCSV(sitesCSV)
-						loader.AttachSites(nodes, sites)
-
-						pol := &k8sched.Policy{}
-						sim := &core.BaseSim{}
-						sim.Init(nodes, pol)
-						if tracer != nil {
-							sim.SetTracer(tracer)
-						}
-						sim.SetScheduleBatchSize(bs)
-						sim.CICalc = func(n *core.SimulatedNode, w core.Workload, at time.Time) float64 {
-							return metrics.ComputeCICost(n, w, at)
-						}
-
-						workloadByID := map[string]core.Workload{}
-						for _, j := range w {
-							workloadByID[j.ID] = j
-							sim.AddWorkload(j)
-						}
-
-						start := time.Now()
-						sim.Run()
-						elapsed := float64(time.Since(start).Milliseconds())
-
-						logs := sim.Logs()
-						writePerJobCSV(outDir, policyID, ciW, bs, logs)
-
-						s := summariseRun(policyID, ciW, bs, logs, workloadByID)
-						s.ElapsedMs = elapsed
-						s.AlphaMass = alphaMass
-						s.LookaheadMin = lookaheadMin
-						s.DurationScale = durScale
-						s.DurationOverrides = durationsFlag
-						allSummaries = append(allSummaries, s)
-						return logs, elapsed
-					},
-				},
-				{
-					name: "keids",
-					run: func(w []core.Workload) ([]core.LogEntry, float64) {
-						const policyID = "keids"
-						nodes := loader.LoadNodesFromCSV(nodesCSV)
-						sites := loader.LoadSitesFromCSV(sitesCSV)
-						loader.AttachSites(nodes, sites)
-
-						pol := &keids.Policy{Weights: keids.DefaultWeights()}
-						sim := &core.BaseSim{}
-						sim.Init(nodes, pol)
-						if tracer != nil {
-							sim.SetTracer(tracer)
-						}
-						sim.SetScheduleBatchSize(bs)
-						sim.CICalc = func(n *core.SimulatedNode, w core.Workload, at time.Time) float64 {
-							return metrics.ComputeCICost(n, w, at)
-						}
-
-						workloadByID := map[string]core.Workload{}
-						for _, j := range w {
-							workloadByID[j.ID] = j
-							sim.AddWorkload(j)
-						}
-
-						start := time.Now()
-						sim.Run()
-						elapsed := float64(time.Since(start).Milliseconds())
-
-						logs := sim.Logs()
-						writePerJobCSV(outDir, policyID, ciW, bs, logs)
-
-						s := summariseRun(policyID, ciW, bs, logs, workloadByID)
-						s.ElapsedMs = elapsed
-						s.Alpha = pol.Weights.Alpha
-						s.Beta = pol.Weights.Beta
-						s.Gamma = pol.Weights.Gamma
-						s.AlphaMass = alphaMass
-						s.LookaheadMin = lookaheadMin
-						s.DurationScale = durScale
-						s.DurationOverrides = durationsFlag
-						allSummaries = append(allSummaries, s)
-						return logs, elapsed
-					},
-				},
-				{
-					name: "topsis",
-					run: func(w []core.Workload) ([]core.LogEntry, float64) {
-						const policyID = "topsis"
-						nodes := loader.LoadNodesFromCSV(nodesCSV)
-						sites := loader.LoadSitesFromCSV(sitesCSV)
-						loader.AttachSites(nodes, sites)
-
-						pol := &topsis.Policy{Weights: topsis.DefaultWeights()}
-						sim := &core.BaseSim{}
-						sim.Init(nodes, pol)
-						if tracer != nil {
-							sim.SetTracer(tracer)
-						}
-						sim.SetScheduleBatchSize(bs)
-						sim.CICalc = func(n *core.SimulatedNode, w core.Workload, at time.Time) float64 {
-							return metrics.ComputeCICost(n, w, at)
-						}
-
-						workloadByID := map[string]core.Workload{}
-						for _, j := range w {
-							workloadByID[j.ID] = j
-							sim.AddWorkload(j)
-						}
-
-						start := time.Now()
-						sim.Run()
-						elapsed := float64(time.Since(start).Milliseconds())
-
-						logs := sim.Logs()
-						writePerJobCSV(outDir, policyID, ciW, bs, logs)
-
-						s := summariseRun(policyID, ciW, bs, logs, workloadByID)
-						s.ElapsedMs = elapsed
-						s.Alpha = pol.Weights.Alpha
-						s.Beta = pol.Weights.Beta
-						s.Gamma = pol.Weights.Gamma
-						s.AlphaMass = alphaMass
-						s.LookaheadMin = lookaheadMin
-						s.DurationScale = durScale
-						s.DurationOverrides = durationsFlag
-						allSummaries = append(allSummaries, s)
-						return logs, elapsed
-					},
-				},
-				{
-					name: "carbonscaler",
-					run: func(w []core.Workload) ([]core.LogEntry, float64) {
-						const policyID = "carbonscaler"
-						lambda := carbonScalerLambda(ciW)
-						nodes := loader.LoadNodesFromCSV(nodesCSV)
-						sites := loader.LoadSitesFromCSV(sitesCSV)
-						loader.AttachSites(nodes, sites)
-
-						pol := &carbonscaler.Policy{Cfg: carbonscaler.Config{Lambda: lambda}}
-						sim := &core.BaseSim{}
-						sim.Init(nodes, pol)
-						if tracer != nil {
-							sim.SetTracer(tracer)
-						}
-						sim.SetScheduleBatchSize(bs)
-						sim.CICalc = func(n *core.SimulatedNode, w core.Workload, at time.Time) float64 {
-							return metrics.ComputeCICost(n, w, at)
-						}
-
-						workloadByID := map[string]core.Workload{}
-						for _, j := range w {
-							workloadByID[j.ID] = j
-							sim.AddWorkload(j)
-						}
-
-						start := time.Now()
-						sim.Run()
-						elapsed := float64(time.Since(start).Milliseconds())
-
-						logs := sim.Logs()
-						writePerJobCSV(outDir, policyID, ciW, bs, logs)
-
-						s := summariseRun(policyID, ciW, bs, logs, workloadByID)
-						s.ElapsedMs = elapsed
-						s.AlphaMass = alphaMass
-						s.LookaheadMin = lookaheadMin
-						s.DurationScale = durScale
-						s.DurationOverrides = durationsFlag
-						allSummaries = append(allSummaries, s)
-						return logs, elapsed
-					},
-				},
-			}
-
-			for _, mode := range hetModes {
-				mode := mode
-				weights := hetWeightSets
-				if len(weights) == 0 {
-					alpha, beta, gamma := calibrateHetWeights(ciW)
-					weights = []hetWeightSet{{
-						Alpha: alpha,
-						Beta:  beta,
-						Gamma: gamma,
-						Label: formatWeightLabel(alpha, beta, gamma),
-					}}
-				}
-				for _, weightCfg := range weights {
-					weightCfg := weightCfg
-					policyID := "hetpolicy"
-					if len(hetWeightSets) > 0 {
-						policyID = formatHetPolicyID(mode, weightCfg.Label)
-					}
-					specs = append(specs, struct {
+	for _, jobCount := range jobCounts {
+		target := jobCount
+		if target <= 0 || target > len(templateWl) {
+			target = len(templateWl)
+		}
+		for _, arrivalRate := range arrivalRates {
+			scenarioSeed := arrivalSeed + int64(target)*1000 + int64(arrivalRate*1000)
+			for _, ciW := range ciWeights {
+				for _, bs := range batchSizes {
+					specs := []struct {
 						name string
 						run  func([]core.Workload) ([]core.LogEntry, float64)
 					}{
-						name: policyID,
-						run: func(w []core.Workload) ([]core.LogEntry, float64) {
-							nodes := loader.LoadNodesFromCSV(nodesCSV)
-							sites := loader.LoadSitesFromCSV(sitesCSV)
-							loader.AttachSites(nodes, sites)
+						{
+							name: "k8s",
+							run: func(w []core.Workload) ([]core.LogEntry, float64) {
+								const policyID = "k8s"
+								nodes := loader.LoadNodesFromCSV(nodesCSV)
+								sites := loader.LoadSitesFromCSV(sitesCSV)
+								loader.AttachSites(nodes, sites)
 
-							sim := &core.BaseSim{}
-							cfg := hetpolicy.DefaultConfig()
-							cfg.Delta = 0.0
-							cfg.Alpha = weightCfg.Alpha
-							cfg.Beta = weightCfg.Beta
-							cfg.Gamma = weightCfg.Gamma
-							pol := &hetpolicy.Policy{
-								Mode:         mode,
-								Cfg:          cfg,
-								OverrideName: policyID,
-							}
-							sim.Init(nodes, pol)
-							if tracer != nil {
-								sim.SetTracer(tracer)
-							}
-							sim.SetScheduleBatchSize(bs)
-							sim.CICalc = func(n *core.SimulatedNode, w core.Workload, at time.Time) float64 {
-								return metrics.ComputeCICost(n, w, at)
-							}
+								pol := &k8sched.Policy{}
+								sim := &core.BaseSim{}
+								sim.Init(nodes, pol)
+								if tracer != nil {
+									sim.SetTracer(tracer)
+								}
+								sim.SetScheduleBatchSize(bs)
+								sim.CICalc = func(n *core.SimulatedNode, w core.Workload, at time.Time) float64 {
+									return metrics.ComputeCICost(n, w, at)
+								}
 
-							workloadByID := map[string]core.Workload{}
-							for _, j := range w {
-								workloadByID[j.ID] = j
-								sim.AddWorkload(j)
-							}
+								applyArrivalSchedule(w, templateStart, bs, arrivalRate, arrivalMode, burstProb, burstMultiplier, scenarioSeed)
+								workloadByID := make(map[string]core.Workload, len(w))
+								for _, j := range w {
+									workloadByID[j.ID] = j
+									sim.AddWorkload(j)
+								}
 
-							start := time.Now()
-							sim.Run()
-							elapsed := float64(time.Since(start).Milliseconds())
+								start := time.Now()
+								sim.Run()
+								elapsed := float64(time.Since(start).Milliseconds())
 
-							logs := sim.Logs()
-							writePerJobCSV(outDir, policyID, ciW, bs, logs)
+								logs := sim.Logs()
+								writePerJobCSV(outDir, policyID, ciW, bs, target, arrivalRate, logs)
 
-							s := summariseRun(policyID, ciW, bs, logs, workloadByID)
-							s.ElapsedMs = elapsed
-							s.Alpha = weightCfg.Alpha
-							s.Beta = weightCfg.Beta
-							s.Gamma = weightCfg.Gamma
-							s.AlphaMass = alphaMass
-							s.LookaheadMin = lookaheadMin
-							s.DurationScale = durScale
-							s.DurationOverrides = durationsFlag
-							allSummaries = append(allSummaries, s)
-							return logs, elapsed
+								s := summariseRun(policyID, ciW, bs, target, arrivalRate, warmupDuration, logs, workloadByID)
+								s.ElapsedMs = elapsed
+								s.AlphaMass = alphaMass
+								s.LookaheadMin = lookaheadMin
+								s.DurationScale = durScale
+								s.DurationOverrides = durationsFlag
+								if haveTheta {
+									s.ThetaE = theta.ThetaE
+									s.ThetaC = theta.ThetaC
+								}
+								allSummaries = append(allSummaries, s)
+								return logs, elapsed
+							},
 						},
-					})
-				}
-			}
+						{
+							name: "keids",
+							run: func(w []core.Workload) ([]core.LogEntry, float64) {
+								const policyID = "keids"
+								nodes := loader.LoadNodesFromCSV(nodesCSV)
+								sites := loader.LoadSitesFromCSV(sitesCSV)
+								loader.AttachSites(nodes, sites)
 
-			// run all 3 schedulers for this (ciW, bs)
-			for _, spec := range specs {
-				// use a fresh copy of workloads per spec
-				wcopy := make([]core.Workload, len(templateWl))
-				copy(wcopy, templateWl)
-				_, _ = spec.run(wcopy)
+								pol := &keids.Policy{Weights: keids.DefaultWeights()}
+								sim := &core.BaseSim{}
+								sim.Init(nodes, pol)
+								if tracer != nil {
+									sim.SetTracer(tracer)
+								}
+								sim.SetScheduleBatchSize(bs)
+								sim.CICalc = func(n *core.SimulatedNode, w core.Workload, at time.Time) float64 {
+									return metrics.ComputeCICost(n, w, at)
+								}
+
+								applyArrivalSchedule(w, templateStart, bs, arrivalRate, arrivalMode, burstProb, burstMultiplier, scenarioSeed)
+								workloadByID := make(map[string]core.Workload, len(w))
+								for _, j := range w {
+									workloadByID[j.ID] = j
+									sim.AddWorkload(j)
+								}
+
+								start := time.Now()
+								sim.Run()
+								elapsed := float64(time.Since(start).Milliseconds())
+
+								logs := sim.Logs()
+								writePerJobCSV(outDir, policyID, ciW, bs, target, arrivalRate, logs)
+
+								s := summariseRun(policyID, ciW, bs, target, arrivalRate, warmupDuration, logs, workloadByID)
+								s.ElapsedMs = elapsed
+								s.Alpha = pol.Weights.Alpha
+								s.Beta = pol.Weights.Beta
+								s.Gamma = pol.Weights.Gamma
+								s.AlphaMass = alphaMass
+								s.LookaheadMin = lookaheadMin
+								s.DurationScale = durScale
+								s.DurationOverrides = durationsFlag
+								if haveTheta {
+									s.ThetaE = theta.ThetaE
+									s.ThetaC = theta.ThetaC
+								}
+								allSummaries = append(allSummaries, s)
+								return logs, elapsed
+							},
+						},
+						{
+							name: "topsis",
+							run: func(w []core.Workload) ([]core.LogEntry, float64) {
+								const policyID = "topsis"
+								nodes := loader.LoadNodesFromCSV(nodesCSV)
+								sites := loader.LoadSitesFromCSV(sitesCSV)
+								loader.AttachSites(nodes, sites)
+
+								pol := &topsis.Policy{Weights: topsis.DefaultWeights()}
+								sim := &core.BaseSim{}
+								sim.Init(nodes, pol)
+								if tracer != nil {
+									sim.SetTracer(tracer)
+								}
+								sim.SetScheduleBatchSize(bs)
+								sim.CICalc = func(n *core.SimulatedNode, w core.Workload, at time.Time) float64 {
+									return metrics.ComputeCICost(n, w, at)
+								}
+
+								applyArrivalSchedule(w, templateStart, bs, arrivalRate, arrivalMode, burstProb, burstMultiplier, scenarioSeed)
+								workloadByID := make(map[string]core.Workload, len(w))
+								for _, j := range w {
+									workloadByID[j.ID] = j
+									sim.AddWorkload(j)
+								}
+
+								start := time.Now()
+								sim.Run()
+								elapsed := float64(time.Since(start).Milliseconds())
+
+								logs := sim.Logs()
+								writePerJobCSV(outDir, policyID, ciW, bs, target, arrivalRate, logs)
+
+								s := summariseRun(policyID, ciW, bs, target, arrivalRate, warmupDuration, logs, workloadByID)
+								s.ElapsedMs = elapsed
+								s.Alpha = pol.Weights.Alpha
+								s.Beta = pol.Weights.Beta
+								s.Gamma = pol.Weights.Gamma
+								s.AlphaMass = alphaMass
+								s.LookaheadMin = lookaheadMin
+								s.DurationScale = durScale
+								s.DurationOverrides = durationsFlag
+								if haveTheta {
+									s.ThetaE = theta.ThetaE
+									s.ThetaC = theta.ThetaC
+								}
+								allSummaries = append(allSummaries, s)
+								return logs, elapsed
+							},
+						},
+						{
+							name: "carbonscaler",
+							run: func(w []core.Workload) ([]core.LogEntry, float64) {
+								const policyID = "carbonscaler"
+								lambda := carbonScalerLambda(ciW)
+								nodes := loader.LoadNodesFromCSV(nodesCSV)
+								sites := loader.LoadSitesFromCSV(sitesCSV)
+								loader.AttachSites(nodes, sites)
+
+								pol := &carbonscaler.Policy{Cfg: carbonscaler.Config{Lambda: lambda}}
+								sim := &core.BaseSim{}
+								sim.Init(nodes, pol)
+								if tracer != nil {
+									sim.SetTracer(tracer)
+								}
+								sim.SetScheduleBatchSize(bs)
+								sim.CICalc = func(n *core.SimulatedNode, w core.Workload, at time.Time) float64 {
+									return metrics.ComputeCICost(n, w, at)
+								}
+
+								applyArrivalSchedule(w, templateStart, bs, arrivalRate, arrivalMode, burstProb, burstMultiplier, scenarioSeed)
+								workloadByID := make(map[string]core.Workload, len(w))
+								for _, j := range w {
+									workloadByID[j.ID] = j
+									sim.AddWorkload(j)
+								}
+
+								start := time.Now()
+								sim.Run()
+								elapsed := float64(time.Since(start).Milliseconds())
+
+								logs := sim.Logs()
+								writePerJobCSV(outDir, policyID, ciW, bs, target, arrivalRate, logs)
+
+								s := summariseRun(policyID, ciW, bs, target, arrivalRate, warmupDuration, logs, workloadByID)
+								s.ElapsedMs = elapsed
+								s.AlphaMass = alphaMass
+								s.LookaheadMin = lookaheadMin
+								s.DurationScale = durScale
+								s.DurationOverrides = durationsFlag
+								if haveTheta {
+									s.ThetaE = theta.ThetaE
+									s.ThetaC = theta.ThetaC
+								}
+								allSummaries = append(allSummaries, s)
+								return logs, elapsed
+							},
+						},
+					}
+
+					for _, mode := range hetModes {
+						mode := mode
+						weights := hetWeightSets
+						if len(weights) == 0 {
+							alpha, beta, gamma := calibrateHetWeights(ciW)
+							weights = []hetWeightSet{{
+								Alpha: alpha,
+								Beta:  beta,
+								Gamma: gamma,
+								Label: formatWeightLabel(alpha, beta, gamma),
+							}}
+						}
+						for _, weightCfg := range weights {
+							weightCfg := weightCfg
+							policyID := "hetpolicy"
+							if len(hetWeightSets) > 0 {
+								policyID = formatHetPolicyID(mode, weightCfg.Label)
+							}
+							specs = append(specs, struct {
+								name string
+								run  func([]core.Workload) ([]core.LogEntry, float64)
+							}{
+								name: policyID,
+								run: func(w []core.Workload) ([]core.LogEntry, float64) {
+									nodes := loader.LoadNodesFromCSV(nodesCSV)
+									sites := loader.LoadSitesFromCSV(sitesCSV)
+									loader.AttachSites(nodes, sites)
+
+									sim := &core.BaseSim{}
+									cfg := hetpolicy.DefaultConfig()
+									cfg.Delta = 0.0
+									cfg.Alpha = weightCfg.Alpha
+									cfg.Beta = weightCfg.Beta
+									cfg.Gamma = weightCfg.Gamma
+									pol := &hetpolicy.Policy{
+										Mode:         mode,
+										Cfg:          cfg,
+										OverrideName: policyID,
+									}
+									sim.Init(nodes, pol)
+									if tracer != nil {
+										sim.SetTracer(tracer)
+									}
+									sim.SetScheduleBatchSize(bs)
+									sim.CICalc = func(n *core.SimulatedNode, w core.Workload, at time.Time) float64 {
+										return metrics.ComputeCICost(n, w, at)
+									}
+
+									applyArrivalSchedule(w, templateStart, bs, arrivalRate, arrivalMode, burstProb, burstMultiplier, scenarioSeed)
+									workloadByID := make(map[string]core.Workload, len(w))
+									for _, j := range w {
+										workloadByID[j.ID] = j
+										sim.AddWorkload(j)
+									}
+
+									start := time.Now()
+									sim.Run()
+									elapsed := float64(time.Since(start).Milliseconds())
+
+									logs := sim.Logs()
+									writePerJobCSV(outDir, policyID, ciW, bs, target, arrivalRate, logs)
+
+									s := summariseRun(policyID, ciW, bs, target, arrivalRate, warmupDuration, logs, workloadByID)
+									s.ElapsedMs = elapsed
+									s.Alpha = weightCfg.Alpha
+									s.Beta = weightCfg.Beta
+									s.Gamma = weightCfg.Gamma
+									s.AlphaMass = alphaMass
+									s.LookaheadMin = lookaheadMin
+									s.DurationScale = durScale
+									s.DurationOverrides = durationsFlag
+									if haveTheta {
+										s.ThetaE = theta.ThetaE
+										s.ThetaC = theta.ThetaC
+									}
+									allSummaries = append(allSummaries, s)
+									return logs, elapsed
+								},
+							})
+						}
+					}
+
+					for _, spec := range specs {
+						wcopy := make([]core.Workload, target)
+						copy(wcopy, templateWl[:target])
+						_, _ = spec.run(wcopy)
+					}
+				}
 			}
 		}
 	}
@@ -577,13 +667,13 @@ func carbonScalerLambda(ciWeight float64) float64 {
 
 func calibrateHetWeights(ciWeight float64) (float64, float64, float64) {
 	_ = ciWeight
-	// Thesis-aligned weighting prioritises carbon (α) with equal emphasis on
-	// runtime and queueing (β, γ). Keep a fixed triple to ensure reproducible sweeps.
-	return 0.58, 0.21, 0.21
+	// Bias HetPolicy toward carbon-first decisions while keeping runtime/queueing sensitivity.
+	return 0.72, 0.18, 0.10
 }
 
-func writePerJobCSV(outDir, policy string, ciW float64, bs int, logs []core.LogEntry) {
-	fn := fmt.Sprintf("%s_%.2f_%d_results.csv", policy, ciW, bs)
+func writePerJobCSV(outDir, policy string, ciW float64, bs int, jobCount int, arrivalRate float64, logs []core.LogEntry) {
+	rateToken := strings.ReplaceAll(fmt.Sprintf("%.2f", arrivalRate), ".", "p")
+	fn := fmt.Sprintf("%s_%.2f_%d_%d_%s_results.csv", policy, ciW, jobCount, bs, rateToken)
 	path := filepath.Join(outDir, fn)
 	f, err := os.Create(path)
 	must(err)
@@ -618,7 +708,7 @@ func writeSummary(outDir string, rows []SummaryRow) {
 	defer w.Flush()
 
 	_ = w.Write([]string{
-		"policy", "ci_weight", "batch_size",
+		"policy", "ci_weight", "batch_size", "job_count", "arrival_rate", "warmup_min", "theta_e", "theta_c",
 		"total_ci_cost_g", "avg_ci_per_job_g", "cfp_g_per_cpu_hour",
 		"avg_wait_s", "makespan_s", "elapsed_ms", "num_jobs",
 		"alpha", "beta", "gamma",
@@ -630,6 +720,11 @@ func writeSummary(outDir string, rows []SummaryRow) {
 			r.Policy,
 			fmt.Sprintf("%.6f", r.CIWeight),
 			strconv.Itoa(r.BatchSize),
+			strconv.Itoa(r.JobCount),
+			fmt.Sprintf("%.4f", r.ArrivalRate),
+			fmt.Sprintf("%.2f", r.WarmupMinutes),
+			fmt.Sprintf("%.4f", r.ThetaE),
+			fmt.Sprintf("%.4f", r.ThetaC),
 			fmt.Sprintf("%.6f", r.TotalCICostG),
 			fmt.Sprintf("%.6f", r.AvgCIPerJobG),
 			fmt.Sprintf("%.6f", r.CFPgPerCPUHour),
@@ -657,6 +752,58 @@ func writeSummary(outDir string, rows []SummaryRow) {
 	_ = enc.Encode(rows)
 }
 
+func applyArrivalSchedule(workloads []core.Workload, start time.Time, batchSize int, arrivalRate float64, mode string, burstProb, burstMultiplier float64, seed int64) {
+	if len(workloads) == 0 {
+		return
+	}
+	if batchSize <= 0 {
+		batchSize = 1
+	}
+	if arrivalRate <= 0 {
+		arrivalRate = 1.0
+	}
+	if start.IsZero() {
+		start = workloads[0].SubmitTime
+		if start.IsZero() {
+			start = time.Now()
+		}
+	}
+	rng := rand.New(rand.NewSource(seed))
+	current := start
+	for idx := 0; idx < len(workloads); {
+		wave := batchSize
+		if remaining := len(workloads) - idx; remaining < wave {
+			wave = remaining
+		}
+		for j := 0; j < wave; j++ {
+			workloads[idx+j].SubmitTime = current
+		}
+		idx += wave
+		if idx >= len(workloads) {
+			break
+		}
+		current = current.Add(sampleArrivalInterval(rng, arrivalRate, mode, burstProb, burstMultiplier))
+	}
+}
+
+func sampleArrivalInterval(rng *rand.Rand, rate float64, mode string, burstProb, burstMultiplier float64) time.Duration {
+	if rate <= 0 {
+		rate = 1.0
+	}
+	minutes := rng.ExpFloat64() / rate
+	if strings.EqualFold(mode, "bursty") && rng.Float64() < clamp01(burstProb) {
+		mult := burstMultiplier
+		if mult <= 0 {
+			mult = 2.0
+		}
+		minutes /= mult
+	}
+	if minutes < 1e-4 {
+		minutes = 1e-4
+	}
+	return time.Duration(minutes * float64(time.Minute))
+}
+
 func cleanResults(dir string) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
@@ -673,13 +820,34 @@ func cleanResults(dir string) {
 	}
 }
 
-func summariseRun(policy string, ciW float64, bs int, logs []core.LogEntry, workloadByID map[string]core.Workload) SummaryRow {
+func summariseRun(policy string, ciW float64, bs int, jobCount int, arrivalRate float64, warmup time.Duration, logs []core.LogEntry, workloadByID map[string]core.Workload) SummaryRow {
+	effective := logs
+	if warmup > 0 && len(logs) > 0 {
+		minStart := logs[0].Start
+		for _, le := range logs {
+			if le.Start.Before(minStart) {
+				minStart = le.Start
+			}
+		}
+		boundary := minStart.Add(warmup)
+		filtered := make([]core.LogEntry, 0, len(logs))
+		for _, le := range logs {
+			if le.Start.Before(boundary) {
+				continue
+			}
+			filtered = append(filtered, le)
+		}
+		if len(filtered) > 0 {
+			effective = filtered
+		}
+	}
+
 	var totalCI float64
 	var sumWaitMs int64
 	var minStart, maxEnd time.Time
 
 	var cfp metrics.CFPAggregate
-	for i, le := range logs {
+	for i, le := range effective {
 		totalCI += le.CICost
 		sumWaitMs += le.WaitMS
 		if i == 0 || le.Start.Before(minStart) {
@@ -694,7 +862,7 @@ func summariseRun(policy string, ciW float64, bs int, logs []core.LogEntry, work
 		cfp.Add(w.CPU, le.CICost, rt)
 	}
 
-	n := len(logs)
+	n := len(effective)
 	avgWaitS := 0.0
 	if n > 0 {
 		avgWaitS = float64(sumWaitMs) / 1000.0 / float64(n)
@@ -708,6 +876,9 @@ func summariseRun(policy string, ciW float64, bs int, logs []core.LogEntry, work
 		Policy:            policy,
 		CIWeight:          ciW,
 		BatchSize:         bs,
+		JobCount:          jobCount,
+		ArrivalRate:       arrivalRate,
+		WarmupMinutes:     warmup.Minutes(),
 		TotalCICostG:      totalCI,
 		AvgCIPerJobG:      safeDiv(totalCI, float64(n)),
 		CFPgPerCPUHour:    cfp.CFPgPerCPUHour(),
@@ -720,6 +891,16 @@ func summariseRun(policy string, ciW float64, bs int, logs []core.LogEntry, work
 		DurationScale:     0, // filled at caller
 		DurationOverrides: "",
 	}
+}
+
+func clamp01(v float64) float64 {
+	if v < 0 {
+		return 0
+	}
+	if v > 1 {
+		return 1
+	}
+	return v
 }
 
 func clampFloat(v, min, max float64) float64 {

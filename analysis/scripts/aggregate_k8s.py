@@ -69,8 +69,13 @@ def load_workload_durations(csv_path: Path) -> Dict[str, float]:
     durations = {}
     with csv_path.open() as handle:
         for row in csv.DictReader(handle):
-            job_id = str(row["id"]).split("-")[-1]
-            durations[job_id] = float(row["duration"])
+            job_token = str(row["id"]).split("-")[-1]
+            duration = float(row["duration"])
+            durations[job_token] = duration
+            trimmed = job_token.lstrip("0") or "0"
+            durations[trimmed] = duration
+            durations[trimmed.zfill(3)] = duration
+            durations[str(int(trimmed))] = duration
     return durations
 
 

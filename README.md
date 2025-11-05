@@ -2,8 +2,44 @@
 KubEnergySched is the sustainability-aware scheduling framework for Heterogeneous RIs. The goal is to integrate heterogeneous infrastructures while optimising **sustainability** outcomes across simulation and Kubernetes replay tracks. It orchestrates the KesPolicies suite (located under `kespolicy/`) to compare heterogeneous scheduling strategies consistently.
 
 ## How to use
-- **1. Prepare inputs** – Generate or update `config/nodes.csv`, `config/workloads.csv`, and `config/sites.csv` with `go run ./cmd/gen_data.go` (or reuse the committed defaults).
-- **2. Run the simulator sweep** – Execute `./kubenergysched/cmd/sweep_sim.sh`. By default it sweeps `ci_weight ∈ {0.2, 0.4, 0.6, 0.8}` and the thesis batch sizes `{200, 500, 1000}`, writing into `kubenergysched/results_<timestamp>/…`. Symlink or copy the run you want to analyse to `kubenergysched/results_latest`.
+- **1. Prepare inputs** – Generate or update `config/nodes.csv`, `config/workloads.csv`, and `config/sites.csv` with the new workload knobs:
+  ```bash
+  cd kubenergysched
+  go run ./cmd/gen_data.go \
+    --nodes-out=config/nodes.csv \
+    --workloads-out=config/workloads.csv \
+    --sites-csv-out=config/sites.csv \
+    --sites-json-out=config/sites.json \
+    --seed=42 \
+    --jobs=1000 \
+    --arrival-rate=1.0 \
+    --batch-size=64 \
+    --arrival-mode=bursty \
+    --burst-probability=0.25 \
+    --burst-multiplier=3.0 \
+    --gpu-share=0.15
+  ```
+  The tool now emits GPU-labelled nodes and workloads with additional columns (`resource_class`, `gpu_count`, `preferred_site`) that drive both the simulator and the Kubernetes replayer. Adjust the knobs to mirror the scenarios you need, or reuse the committed defaults.
+- **2. Run the simulator sweep** – Launch the richer sweep directly:
+  ```bash
+  cd kubenergysched
+  go run ./cmd/run_sim.go \
+    --nodes-csv=config/nodes.csv \
+    --wl-csv=config/workloads.csv \
+    --sites-csv=config/sites.csv \
+    --outdir=results_latest \
+    --ci-weights=0.2,0.4,0.6,0.8 \
+    --batch-sizes=200,500,1000 \
+    --job-counts=200,500,1000 \
+    --arrival-rates=0.5,1.0,1.5 \
+    --arrival-mode=bursty \
+    --arrival-burst-probability=0.25 \
+    --arrival-burst-multiplier=2.5 \
+    --warmup-min=30 \
+    --arrival-seed=1337
+  ```
+  The simulator now rewrites submit timestamps per scenario, honours the warm-up window when summarising metrics, and captures the extra knobs (job-count, arrival-rate, Θ) inside `summary.csv`. Use a fresh `--outdir` (e.g. `results_$(date +%Y%m%d_%H%M%S)`) when you want to archive multiple sweeps.
+- **3. Optionally sync multiple sweeps** – `./kubenergysched/cmd/sweep_sim.sh` still works; export the same environment variables (`SWEEP_CI_WEIGHTS`, `SWEEP_BATCH_SIZES`, `SWEEP_OUT_PREFIX`) to mirror the command above.
 - **3. Collect Kubernetes traces (optional)** – Replay the batch via `k8s/replay_workloads.yaml`, then export decisions to `kubenergysched/results_latest/decisions.jsonl`. The simulator notebooks automatically harmonise both sources if the JSONL is present.
 - **4. Launch the analysis notebook** – Open `analysis/jupyter/output_capture.ipynb` (or `final_analysis.executed.ipynb`) in Jupyter, run all cells, and review the generated tables, plots, and evaluation metrics.
 - **5. Compare policies** – The notebook materialises the carbon and timeliness metrics mandated by the thesis (CFP, SCI, makespan, latency, scheduler overhead, throughput, average energy per job) so both pathways can be contrasted consistently.
@@ -13,7 +49,7 @@ The replay track mirrors the simulator while exercising the live HetPolicy and C
 
 1. **Create the Kind cluster** (multi-node, labelled): `kind create cluster --name themis --config k8s/kind/multi-node.yaml`.
 2. **Load fresh controller/replayer images**: `kind load docker-image --name themis goncaloferreirauva/ci-aware-controller:<tag>` and `goncaloferreirauva/workload-replayer:<tag>`.
-3. **Install the Helm stack** (HetPolicy): `./k8s/scripts/cluster.sh helm-up`.
+3. **Install the Helm stack** (HetPolicy): `./k8s/scripts/cluster.sh helm-up`. The controller honours `CIW_NODE_CAP` (default `100`) to mimic the simulator’s node limit; override it via `kubectl -n workloads set env deploy/ci-aware-controller CIW_NODE_CAP=<cap>`.
 4. **Export HetPolicy decisions**: `RESULT_DIR=$PWD/kubenergysched/results_k8s/hetpolicy ./k8s/scripts/cluster.sh fetch`.
 5. **Switch to CarbonScaler**: `kubectl -n workloads set env deploy/ci-aware-controller SCHEDULER_POLICY=carbonscaler` and rerun `helm-up`.
 6. **Export CarbonScaler decisions**: `RESULT_DIR=$PWD/kubenergysched/results_k8s/carbonscaler ./k8s/scripts/cluster.sh fetch`.
@@ -34,10 +70,12 @@ The notebook implements the Section 6.2.2 definitions over the harmonised per-j
 Run the notebook after each simulator/Kubernetes export; `evaluation_metrics` in the notebook contains the consolidated table ready for reporting.
 
 ## Generating simulator inputs
-Use the helper to build consistent node, site, and workload CSVs:
-- `cd kubenergysched && go run ./cmd/gen_data.go --nodes-out=config/nodes.csv --workloads-out=config/workloads.csv --sites-csv-out=config/sites.csv --sites-json-out=config/sites.json --seed=42`
-  - Omitting `--seed` randomises workloads; keep it to reproduce the thesis dataset.
-  - The simulator expects the CSV trio, and the controller consumes the accompanying `sites.json` ConfigMap.
+`cmd/gen_data.go` now exposes all workload realism knobs in a single place:
+- `--jobs`, `--arrival-rate`, `--arrival-mode`, `--burst-probability`, `--burst-multiplier`, `--batch-size` govern the arrival process.
+- `--gpu-share`, `--seed`, and the log-normal/Pareto quantiles shape the job mix and heavy tail.
+- `config/workloads.csv` gains `preferred_site`, `resource_class`, and `gpu_count`; `config/nodes.csv` carries an optional `labels` column (e.g. `gpu=true`) and `peak_power_w`.
+
+The Kubernetes replayer reads the same CSV, applies the precise submission timestamps, requests GPUs when `gpu_count>0`, and labels pods with the resource hints the simulator uses (`resource_class`, `requires_gpu`, `preferred_site`). The controller ConfigMap (`sites.json`) still provides the static CI/PUE defaults unless a live forecast endpoint is configured.
 
 ## KesPolicies suite
 KubEnergySched evaluates the following KesPolicies implementations:

@@ -1,6 +1,7 @@
 ciAware:
   image: "docker.io/goncaloferreirauva/ci-aware-controller:debug"
   pullPolicy: Always
+  nodeCap: 100
   # image: "docker.io/goncaloferreirauva/ci-aware-controller:latest"
 
 replayer:

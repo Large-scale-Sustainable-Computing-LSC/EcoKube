@@ -75,6 +75,8 @@ spec:
               value: "1.0"
             - name: CARBONSCALER_DEFER_THRESHOLD
               value: "0.6"
+            - name: CIW_NODE_CAP
+              value: "100"
             # - name: FORECAST_BASE_URL
             #   value: "http://ci-api.workloads.svc.cluster.local"  # optional
           volumeMounts:
