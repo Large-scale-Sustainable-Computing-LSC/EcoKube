@@ -1,0 +1,23 @@
+{
+  "backend": "k8s",
+  "commit": "unknown",
+  "seed": null,
+  "sweep_ids": [
+    "analysis/k8s_results",
+    "analysis/k8s_results/batch_1000",
+    "analysis/k8s_results/batch_200",
+    "analysis/k8s_results/batch_500",
+    "analysis/k8s_results/carbonscaler",
+    "analysis/k8s_results/hetpolicy",
+    "analysis/k8s_results/summary",
+    "kubenergysched/results_k8s",
+    "kubenergysched/results_k8s/carbonscaler",
+    "kubenergysched/results_k8s/hetpolicy",
+    "kubenergysched/results_k8s/summary",
+    "kubenergysched/results_k8s_tuned",
+    "kubenergysched/results_k8s_tuned/carbonscaler",
+    "kubenergysched/results_k8s_tuned/hetpolicy",
+    "kubenergysched/results_k8s_tuned/summary"
+  ],
+  "timestamp": "2025-11-05T19:20:27.236184+00:00"
+}

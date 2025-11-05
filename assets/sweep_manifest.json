@@ -1,0 +1,27 @@
+{
+  "sim": [
+    "carbonscaler::1000",
+    "carbonscaler::26",
+    "carbonscaler::74",
+    "hetpolicy::1000",
+    "k8s-default::1000",
+    "k8s-default::26",
+    "k8s-default::74",
+    "keids::1000",
+    "per::3000",
+    "themis-base::1000",
+    "themis-base::26",
+    "themis-base::74",
+    "themis::1000",
+    "topsis::1000"
+  ],
+  "k8s": [
+    "carbonscaler::18",
+    "carbonscaler::48",
+    "hetpolicy::18",
+    "hetpolicy::48",
+    "k8s-default::48",
+    "keids::48",
+    "topsis::48"
+  ]
+}
