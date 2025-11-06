@@ -8,7 +8,7 @@ This script produces four figures per backend (``sim`` and ``k8s``):
 3. Makespan bar chart with 95 % bootstrap confidence intervals.
 4. Site selection stacked bar chart showing allocation shares.
 
-Outputs are written to ``assets/{backend}_*.pdf``.
+Outputs are written to ``assets/{backend}_*.png``.
 """
 
 from __future__ import annotations
@@ -551,25 +551,25 @@ def generate_figures() -> None:
             policy_df,
             backend,
             colors,
-            ASSETS_DIR / f"{backend}_pareto_energy_vs_sci.pdf",
+            ASSETS_DIR / f"{backend}_pareto_energy_vs_sci.png",
         )
         _plot_latency_violin(
             policy_df,
             backend,
             colors,
-            ASSETS_DIR / f"{backend}_tail_latency_violin.pdf",
+            ASSETS_DIR / f"{backend}_tail_latency_violin.png",
         )
         _plot_makespan_bars(
             policy_df,
             backend,
             colors,
-            ASSETS_DIR / f"{backend}_makespan_bars.pdf",
+            ASSETS_DIR / f"{backend}_makespan_bars.png",
         )
         _plot_site_stacked(
             site_df,
             backend,
             colors,
-            ASSETS_DIR / f"{backend}_site_selection_stacked_bar.pdf",
+            ASSETS_DIR / f"{backend}_site_selection_stacked_bar.png",
         )
 
 
