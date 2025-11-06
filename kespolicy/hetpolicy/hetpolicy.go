@@ -39,9 +39,9 @@ type Config struct {
 // DefaultConfig returns conservative weighting ready to tweak per deployment.
 func DefaultConfig() Config {
 	return Config{
-		Alpha: 0.5,
-		Beta:  0.3,
-		Gamma: 0.2,
+		Alpha: 0.58,
+		Beta:  0.21,
+		Gamma: 0.21,
 		Delta: 0.0,
 	}
 }
@@ -184,28 +184,28 @@ func (p *Policy) scoreWeighted(items []candidateMetrics) core.Scores {
 		return scores
 	}
 	alphaClamp := clamp(p.Cfg.Alpha, 0, 1)
-	slack := 0.01 + (1-alphaClamp)*0.05
+	slack := 0.008 + (1-alphaClamp)*0.04
 	for _, it := range items {
 		if !it.feasible {
 			continue
 		}
 		queueHat := clamp(it.queueHat, 0, 1)
 		carbonPenalty := it.co2Hat
-		carbonPenalty *= 1 + 0.1*queueHat
+		carbonPenalty *= 1 + 0.08*queueHat
 
-		queueRelax := 0.12 * queueHat
+		queueRelax := 0.10 * queueHat
 		allowed := minCarbon * (1 + slack + queueRelax)
 		if it.co2 > allowed {
 			overshoot := (it.co2 - allowed) / allowed
 			if overshoot < 0 {
 				overshoot = 0
 			}
-			bump := (0.35 + 0.45*alphaClamp) * (1 + overshoot)
+			bump := (0.3 + 0.4*alphaClamp) * (1 + overshoot)
 			carbonPenalty += bump
 		}
 		queueTerm := queueHat
 		if queueTerm > 0 {
-			queueTerm = math.Pow(queueTerm, 0.6)
+			queueTerm = math.Pow(queueTerm, 0.7)
 		}
 		score := p.Cfg.Alpha*carbonPenalty +
 			p.Cfg.Beta*it.runtimeHat +
