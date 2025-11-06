@@ -10,8 +10,14 @@ import (
 
 const (
 	defaultPeakPowerW = 400.0
-	defaultIdleFrac   = 0.15
+	defaultIdleFrac   = 0.20
 	defaultCarbonIntG = 400.0
+
+	ciSmoothWindow = 5
+	ciSmoothStep   = 5 * time.Minute
+
+	minCarbonIntensityG = 0.0
+	cpuScalingGamma     = 0.8
 )
 
 // ComputeEnergyAndCarbon estimates the energy (in kWh) and CO₂ emissions (in kg)
@@ -61,6 +67,9 @@ func ComputeEnergyAndCarbon(n *core.SimulatedNode, w core.Workload, at time.Time
 	} else if cpuFrac > 1 {
 		cpuFrac = 1
 	}
+	if cpuFrac > 0 {
+		cpuFrac = math.Pow(cpuFrac, cpuScalingGamma)
+	}
 
 	dynamic := math.Max(peak-peak*idleFrac, 0)
 	powerW := peak*idleFrac + cpuFrac*dynamic
@@ -76,6 +85,17 @@ func ComputeEnergyAndCarbon(n *core.SimulatedNode, w core.Workload, at time.Time
 		if n.Site.K > 0 {
 			energyKWh *= n.Site.K
 		}
+	}
+
+	if ci > 0 {
+		scale := ci / defaultCarbonIntG
+		if scale < 0.25 {
+			scale = 0.25
+		}
+		if scale > 1.2 {
+			scale = 1.2
+		}
+		energyKWh *= scale
 	}
 
 	pue := 1.0
@@ -103,6 +123,30 @@ func ComputeCICost(n *core.SimulatedNode, w core.Workload, at time.Time) float64
 }
 
 func currentCI(n *core.SimulatedNode, at time.Time) float64 {
+	if n == nil {
+		return 0
+	}
+	if ciSmoothWindow <= 1 {
+		return clampCI(rawCarbonIntensity(n, at))
+	}
+	step := ciSmoothStep
+	if step <= 0 {
+		step = time.Minute
+	}
+	sum := 0.0
+	count := 0.0
+	for i := 0; i < ciSmoothWindow; i++ {
+		sampleAt := at.Add(-time.Duration(i) * step)
+		sum += rawCarbonIntensity(n, sampleAt)
+		count++
+	}
+	if count == 0 {
+		return clampCI(rawCarbonIntensity(n, at))
+	}
+	return clampCI(sum / count)
+}
+
+func rawCarbonIntensity(n *core.SimulatedNode, at time.Time) float64 {
 	profile := ""
 	if n.Metadata != nil {
 		profile = n.Metadata["ci_profile"]
@@ -169,4 +213,11 @@ func EstimateCarbonIntensity(n *core.SimulatedNode, at time.Time) float64 {
 		return 0
 	}
 	return currentCI(n, at)
+}
+
+func clampCI(ci float64) float64 {
+	if ci < minCarbonIntensityG {
+		return minCarbonIntensityG
+	}
+	return ci
 }

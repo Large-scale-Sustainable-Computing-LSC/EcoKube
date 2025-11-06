@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/g-uva/KubEnergySched/kubenergysched/pkg/core"
@@ -19,6 +20,18 @@ const (
 	ModeWeightedSum       Mode = "het-weighted-sum"
 	ModeEpsilonConstraint Mode = "het-epsilon-constraint"
 	ModeGreedyNormalised  Mode = "het-greedy-normalised"
+)
+
+const (
+	carbonGuardFraction       = 0.12
+	fitBonusBase              = 0.08
+	maxFitBonusFraction       = 0.10
+	interferencePenaltyFactor = 1.8
+	noiseAmplifier            = 1.2
+	minGuardSlack             = 0.008
+	queueGuardRelax           = 0.08
+	energyGuardFraction       = 0.08
+	energyWeight              = 0.32
 )
 
 // Config gathers weights and optional thresholds for the composite score.
@@ -39,9 +52,9 @@ type Config struct {
 // DefaultConfig returns conservative weighting ready to tweak per deployment.
 func DefaultConfig() Config {
 	return Config{
-		Alpha: 0.58,
-		Beta:  0.21,
-		Gamma: 0.21,
+		Alpha: 0.25,
+		Beta:  0.40,
+		Gamma: 0.35,
 		Delta: 0.0,
 	}
 }
@@ -101,11 +114,13 @@ type candidateMetrics struct {
 	feasible bool
 
 	co2     float64
+	energy  float64
 	runtime float64
 	queue   float64
 	move    float64
 
 	co2Hat     float64
+	energyHat  float64
 	runtimeHat float64
 	queueHat   float64
 	moveHat    float64
@@ -120,6 +135,7 @@ func computeCandidateMetrics(job core.Job, nodes []core.SimulatedNode, now time.
 	items := make([]candidateMetrics, len(nodes))
 
 	co2Vals := make([]float64, 0, len(nodes))
+	energyVals := make([]float64, 0, len(nodes))
 	rtVals := make([]float64, 0, len(nodes))
 	queueVals := make([]float64, 0, len(nodes))
 	moveVals := make([]float64, 0, len(nodes))
@@ -135,11 +151,19 @@ func computeCandidateMetrics(job core.Job, nodes []core.SimulatedNode, now time.
 		}
 
 		nCopy := n
-		item.co2 = metrics.ComputeCICost(&nCopy, work, now)
+		energy, carbon := metrics.ComputeEnergyAndCarbon(&nCopy, work, now)
+		item.energy = energy
+		item.co2 = carbon * 1000.0
 		item.runtime = runtimeSeconds(job)
+		item.runtime *= 1 - fitBonus(job, &nCopy)
+		if item.runtime < 0 {
+			item.runtime = 0
+		}
 		item.queue = queueSeconds(&nCopy, now)
+		item.queue += interferencePenalty(&nCopy, job)
 		item.move = dataMovementHint(job, &nCopy)
 
+		energyVals = append(energyVals, item.energy)
 		co2Vals = append(co2Vals, item.co2)
 		rtVals = append(rtVals, item.runtime)
 		queueVals = append(queueVals, item.queue)
@@ -149,6 +173,7 @@ func computeCandidateMetrics(job core.Job, nodes []core.SimulatedNode, now time.
 	}
 
 	co2Hats := normaliseMinMax(co2Vals)
+	energyHats := normaliseMinMax(energyVals)
 	rtHats := normaliseMinMax(rtVals)
 	queueHats := normaliseMinMax(queueVals)
 	moveHats := normaliseMinMax(moveVals)
@@ -159,6 +184,7 @@ func computeCandidateMetrics(job core.Job, nodes []core.SimulatedNode, now time.
 			continue
 		}
 		items[i].co2Hat = co2Hats[idx]
+		items[i].energyHat = energyHats[idx]
 		items[i].runtimeHat = rtHats[idx]
 		items[i].queueHat = queueHats[idx]
 		items[i].moveHat = moveHats[idx]
@@ -171,6 +197,7 @@ func computeCandidateMetrics(job core.Job, nodes []core.SimulatedNode, now time.
 func (p *Policy) scoreWeighted(items []candidateMetrics) core.Scores {
 	scores := core.Scores{}
 	minCarbon := math.Inf(1)
+	minEnergy := math.Inf(1)
 	for _, it := range items {
 		if !it.feasible {
 			continue
@@ -178,13 +205,16 @@ func (p *Policy) scoreWeighted(items []candidateMetrics) core.Scores {
 		if it.co2 < minCarbon {
 			minCarbon = it.co2
 		}
+		if it.energy < minEnergy {
+			minEnergy = it.energy
+		}
 	}
 	if math.IsInf(minCarbon, 1) {
 		scores[""] = math.Inf(1)
 		return scores
 	}
 	alphaClamp := clamp(p.Cfg.Alpha, 0, 1)
-	slack := 0.008 + (1-alphaClamp)*0.04
+	slack := minGuardSlack + (1-alphaClamp)*0.03
 	for _, it := range items {
 		if !it.feasible {
 			continue
@@ -192,15 +222,29 @@ func (p *Policy) scoreWeighted(items []candidateMetrics) core.Scores {
 		queueHat := clamp(it.queueHat, 0, 1)
 		carbonPenalty := it.co2Hat
 		carbonPenalty *= 1 + 0.08*queueHat
+		energyPenalty := it.energyHat
+		energyPenalty *= 1 + 0.04*queueHat
 
-		queueRelax := 0.10 * queueHat
-		allowed := minCarbon * (1 + slack + queueRelax)
+		queueRelax := queueGuardRelax * queueHat
+		allowed := minCarbon * (1 + math.Min(carbonGuardFraction, slack+queueRelax))
+		guarded := minCarbon * (1 + carbonGuardFraction)
+		if it.co2 > guarded {
+			scores[it.id] = math.Inf(1)
+			continue
+		}
+		if !math.IsInf(minEnergy, 1) {
+			energyAllowed := minEnergy * (1 + energyGuardFraction)
+			if it.energy > energyAllowed {
+				scores[it.id] = math.Inf(1)
+				continue
+			}
+		}
 		if it.co2 > allowed {
 			overshoot := (it.co2 - allowed) / allowed
 			if overshoot < 0 {
 				overshoot = 0
 			}
-			bump := (0.3 + 0.4*alphaClamp) * (1 + overshoot)
+			bump := (0.3 + 0.5*alphaClamp) * (1 + overshoot)
 			carbonPenalty += bump
 		}
 		queueTerm := queueHat
@@ -208,6 +252,7 @@ func (p *Policy) scoreWeighted(items []candidateMetrics) core.Scores {
 			queueTerm = math.Pow(queueTerm, 0.7)
 		}
 		score := p.Cfg.Alpha*carbonPenalty +
+			energyWeight*energyPenalty +
 			p.Cfg.Beta*it.runtimeHat +
 			p.Cfg.Gamma*queueTerm +
 			p.Cfg.Delta*it.moveHat
@@ -248,6 +293,35 @@ func (p *Policy) scoreEpsilon(items []candidateMetrics) core.Scores {
 			if it.feasible {
 				candidates = append(candidates, it)
 			}
+		}
+	}
+	if len(candidates) > 0 {
+		minCarbon := math.Inf(1)
+		minEnergy := math.Inf(1)
+		for _, it := range candidates {
+			if it.co2 < minCarbon {
+				minCarbon = it.co2
+			}
+			if it.energy < minEnergy {
+				minEnergy = it.energy
+			}
+		}
+		filtered := candidates[:0]
+		for _, it := range candidates {
+			carbonOK := true
+			if !math.IsInf(minCarbon, 1) {
+				carbonOK = it.co2 <= minCarbon*(1+carbonGuardFraction)
+			}
+			energyOK := true
+			if !math.IsInf(minEnergy, 1) {
+				energyOK = it.energy <= minEnergy*(1+energyGuardFraction)
+			}
+			if carbonOK && energyOK {
+				filtered = append(filtered, it)
+			}
+		}
+		if len(filtered) > 0 {
+			candidates = filtered
 		}
 	}
 	if len(candidates) == 0 {
@@ -344,6 +418,64 @@ func dataMovementHint(job core.Job, n *core.SimulatedNode) float64 {
 		return 0
 	}
 	return 1
+}
+
+func fitBonus(job core.Job, n *core.SimulatedNode) float64 {
+	if n == nil {
+		return 0
+	}
+	bonus := 0.0
+	if job.Labels != nil {
+		if strings.EqualFold(job.Labels["requires_gpu"], "true") && hasLabelValue(n.Labels, "gpu", "true", "1") {
+			bonus = math.Max(bonus, fitBonusBase)
+		}
+		if pref := job.Labels["preferred_site"]; pref != "" && n.Site != nil && strings.EqualFold(n.Site.ID, pref) {
+			bonus = math.Max(bonus, fitBonusBase*0.6)
+		}
+		if cls := job.Labels["resource_class"]; cls != "" && hasLabelValue(n.Labels, "resource_class", cls) {
+			bonus = math.Max(bonus, fitBonusBase)
+		}
+		if nodeType := job.Labels["preferred_node_type"]; nodeType != "" && hasLabelValue(n.Labels, "node_type", nodeType) {
+			bonus = math.Max(bonus, fitBonusBase)
+		}
+	}
+	return clamp(bonus, 0, maxFitBonusFraction)
+}
+
+func interferencePenalty(n *core.SimulatedNode, job core.Job) float64 {
+	if n == nil || n.TotalCPU <= 0 || n.TotalMemory <= 0 {
+		return 0
+	}
+	cpuUtil := 1 - clamp(n.AvailableCPU/n.TotalCPU, 0, 1)
+	memUtil := 1 - clamp(n.AvailableMemory/n.TotalMemory, 0, 1)
+	util := math.Max(cpuUtil, memUtil)
+	if util <= 0 {
+		return 0
+	}
+	scale := interferencePenaltyFactor * util * math.Sqrt(math.Max(runtimeSeconds(job), 1))
+	if hasLabelValue(n.Labels, "noisy_neighbor", "true") || hasLabelValue(n.Labels, "mixed", "true") {
+		scale *= noiseAmplifier
+	}
+	return scale
+}
+
+func hasLabelValue(labels map[string]string, key string, expected ...string) bool {
+	if labels == nil {
+		return false
+	}
+	val, ok := labels[key]
+	if !ok {
+		return false
+	}
+	if len(expected) == 0 {
+		return val != ""
+	}
+	for _, candidate := range expected {
+		if strings.EqualFold(val, candidate) {
+			return true
+		}
+	}
+	return false
 }
 
 // normaliseMinMax maps input values to [0,1]. If the range collapses, use 0.5.

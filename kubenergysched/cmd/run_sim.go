@@ -6,9 +6,11 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"math"
 	"math/rand"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -40,6 +42,10 @@ type SummaryRow struct {
 	MakespanS         float64 `json:"makespan_s"`
 	ElapsedMs         float64 `json:"elapsed_ms"`
 	NumJobs           int     `json:"num_jobs"`
+	CarbonMedianG     float64 `json:"carbon_median_g"`
+	CarbonIqrG        float64 `json:"carbon_iqr_g"`
+	WaitMedianS       float64 `json:"wait_median_s"`
+	WaitIqrS          float64 `json:"wait_iqr_s"`
 	Alpha             float64 `json:"alpha"`
 	Beta              float64 `json:"beta"`
 	Gamma             float64 `json:"gamma"`
@@ -47,6 +53,7 @@ type SummaryRow struct {
 	LookaheadMin      int     `json:"lookahead_min"`
 	DurationScale     float64 `json:"duration_scale"`
 	DurationOverrides string  `json:"duration_overrides"`
+	Rep               int     `json:"rep"`
 }
 
 type hetWeightSet struct {
@@ -55,6 +62,11 @@ type hetWeightSet struct {
 	Gamma float64
 	Label string
 }
+
+const (
+	defaultRepetitions = 50
+	seedStride         = 7919
+)
 
 func main() {
 	// ---- CLI flags ----
@@ -78,7 +90,7 @@ func main() {
 	flag.StringVar(&wlCSV, "wl-csv", "config/workloads.csv", "path to workloads CSV")
 	flag.StringVar(&sitesCSV, "sites-csv", "", "path to sites CSV (defaults to nodes directory/sites.csv)")
 	flag.StringVar(&outDir, "outdir", "", "output directory for per-run CSVs and summary (default kubenergysched/results)")
-	flag.StringVar(&ciWeightsFlag, "ci-weights", "0.4", "comma-separated base CI weights to sweep")
+	flag.StringVar(&ciWeightsFlag, "ci-weights", "0.35,0.40,0.45", "comma-separated base CI weights to sweep")
 	flag.StringVar(&batchSizesFlag, "batch-sizes", "64", "comma-separated batch sizes to sweep")
 	flag.StringVar(&jobCountsFlag, "job-counts", "", "comma-separated job counts to evaluate (defaults to workload size)")
 	flag.StringVar(&arrivalRatesFlag, "arrival-rates", "1.0", "comma-separated arrival rates (jobs/minute)")
@@ -201,11 +213,11 @@ func main() {
 				for _, bs := range batchSizes {
 					specs := []struct {
 						name string
-						run  func([]core.Workload) ([]core.LogEntry, float64)
+						run  func([]core.Workload, int64, int) ([]core.LogEntry, float64)
 					}{
 						{
 							name: "k8s",
-							run: func(w []core.Workload) ([]core.LogEntry, float64) {
+							run: func(w []core.Workload, seed int64, rep int) ([]core.LogEntry, float64) {
 								const policyID = "k8s"
 								nodes := loader.LoadNodesFromCSV(nodesCSV)
 								sites := loader.LoadSitesFromCSV(sitesCSV)
@@ -222,7 +234,7 @@ func main() {
 									return metrics.ComputeCICost(n, w, at)
 								}
 
-								applyArrivalSchedule(w, templateStart, bs, arrivalRate, arrivalMode, burstProb, burstMultiplier, scenarioSeed)
+								applyArrivalSchedule(w, templateStart, bs, arrivalRate, arrivalMode, burstProb, burstMultiplier, seed)
 								workloadByID := make(map[string]core.Workload, len(w))
 								for _, j := range w {
 									workloadByID[j.ID] = j
@@ -234,7 +246,7 @@ func main() {
 								elapsed := float64(time.Since(start).Milliseconds())
 
 								logs := sim.Logs()
-								writePerJobCSV(outDir, policyID, ciW, bs, target, arrivalRate, logs)
+								writePerJobCSV(outDir, policyID, ciW, bs, target, arrivalRate, rep, logs)
 
 								s := summariseRun(policyID, ciW, bs, target, arrivalRate, warmupDuration, logs, workloadByID)
 								s.ElapsedMs = elapsed
@@ -242,6 +254,7 @@ func main() {
 								s.LookaheadMin = lookaheadMin
 								s.DurationScale = durScale
 								s.DurationOverrides = durationsFlag
+								s.Rep = rep
 								if haveTheta {
 									s.ThetaE = theta.ThetaE
 									s.ThetaC = theta.ThetaC
@@ -252,7 +265,7 @@ func main() {
 						},
 						{
 							name: "keids",
-							run: func(w []core.Workload) ([]core.LogEntry, float64) {
+							run: func(w []core.Workload, seed int64, rep int) ([]core.LogEntry, float64) {
 								const policyID = "keids"
 								nodes := loader.LoadNodesFromCSV(nodesCSV)
 								sites := loader.LoadSitesFromCSV(sitesCSV)
@@ -269,7 +282,7 @@ func main() {
 									return metrics.ComputeCICost(n, w, at)
 								}
 
-								applyArrivalSchedule(w, templateStart, bs, arrivalRate, arrivalMode, burstProb, burstMultiplier, scenarioSeed)
+								applyArrivalSchedule(w, templateStart, bs, arrivalRate, arrivalMode, burstProb, burstMultiplier, seed)
 								workloadByID := make(map[string]core.Workload, len(w))
 								for _, j := range w {
 									workloadByID[j.ID] = j
@@ -281,7 +294,7 @@ func main() {
 								elapsed := float64(time.Since(start).Milliseconds())
 
 								logs := sim.Logs()
-								writePerJobCSV(outDir, policyID, ciW, bs, target, arrivalRate, logs)
+								writePerJobCSV(outDir, policyID, ciW, bs, target, arrivalRate, rep, logs)
 
 								s := summariseRun(policyID, ciW, bs, target, arrivalRate, warmupDuration, logs, workloadByID)
 								s.ElapsedMs = elapsed
@@ -292,6 +305,7 @@ func main() {
 								s.LookaheadMin = lookaheadMin
 								s.DurationScale = durScale
 								s.DurationOverrides = durationsFlag
+								s.Rep = rep
 								if haveTheta {
 									s.ThetaE = theta.ThetaE
 									s.ThetaC = theta.ThetaC
@@ -302,7 +316,7 @@ func main() {
 						},
 						{
 							name: "topsis",
-							run: func(w []core.Workload) ([]core.LogEntry, float64) {
+							run: func(w []core.Workload, seed int64, rep int) ([]core.LogEntry, float64) {
 								const policyID = "topsis"
 								nodes := loader.LoadNodesFromCSV(nodesCSV)
 								sites := loader.LoadSitesFromCSV(sitesCSV)
@@ -319,7 +333,7 @@ func main() {
 									return metrics.ComputeCICost(n, w, at)
 								}
 
-								applyArrivalSchedule(w, templateStart, bs, arrivalRate, arrivalMode, burstProb, burstMultiplier, scenarioSeed)
+								applyArrivalSchedule(w, templateStart, bs, arrivalRate, arrivalMode, burstProb, burstMultiplier, seed)
 								workloadByID := make(map[string]core.Workload, len(w))
 								for _, j := range w {
 									workloadByID[j.ID] = j
@@ -331,7 +345,7 @@ func main() {
 								elapsed := float64(time.Since(start).Milliseconds())
 
 								logs := sim.Logs()
-								writePerJobCSV(outDir, policyID, ciW, bs, target, arrivalRate, logs)
+								writePerJobCSV(outDir, policyID, ciW, bs, target, arrivalRate, rep, logs)
 
 								s := summariseRun(policyID, ciW, bs, target, arrivalRate, warmupDuration, logs, workloadByID)
 								s.ElapsedMs = elapsed
@@ -342,6 +356,7 @@ func main() {
 								s.LookaheadMin = lookaheadMin
 								s.DurationScale = durScale
 								s.DurationOverrides = durationsFlag
+								s.Rep = rep
 								if haveTheta {
 									s.ThetaE = theta.ThetaE
 									s.ThetaC = theta.ThetaC
@@ -352,7 +367,7 @@ func main() {
 						},
 						{
 							name: "carbonscaler",
-							run: func(w []core.Workload) ([]core.LogEntry, float64) {
+							run: func(w []core.Workload, seed int64, rep int) ([]core.LogEntry, float64) {
 								const policyID = "carbonscaler"
 								lambda := carbonScalerLambda(ciW)
 								nodes := loader.LoadNodesFromCSV(nodesCSV)
@@ -370,7 +385,7 @@ func main() {
 									return metrics.ComputeCICost(n, w, at)
 								}
 
-								applyArrivalSchedule(w, templateStart, bs, arrivalRate, arrivalMode, burstProb, burstMultiplier, scenarioSeed)
+								applyArrivalSchedule(w, templateStart, bs, arrivalRate, arrivalMode, burstProb, burstMultiplier, seed)
 								workloadByID := make(map[string]core.Workload, len(w))
 								for _, j := range w {
 									workloadByID[j.ID] = j
@@ -382,7 +397,7 @@ func main() {
 								elapsed := float64(time.Since(start).Milliseconds())
 
 								logs := sim.Logs()
-								writePerJobCSV(outDir, policyID, ciW, bs, target, arrivalRate, logs)
+								writePerJobCSV(outDir, policyID, ciW, bs, target, arrivalRate, rep, logs)
 
 								s := summariseRun(policyID, ciW, bs, target, arrivalRate, warmupDuration, logs, workloadByID)
 								s.ElapsedMs = elapsed
@@ -390,6 +405,7 @@ func main() {
 								s.LookaheadMin = lookaheadMin
 								s.DurationScale = durScale
 								s.DurationOverrides = durationsFlag
+								s.Rep = rep
 								if haveTheta {
 									s.ThetaE = theta.ThetaE
 									s.ThetaC = theta.ThetaC
@@ -420,10 +436,10 @@ func main() {
 							}
 							specs = append(specs, struct {
 								name string
-								run  func([]core.Workload) ([]core.LogEntry, float64)
+								run  func([]core.Workload, int64, int) ([]core.LogEntry, float64)
 							}{
 								name: policyID,
-								run: func(w []core.Workload) ([]core.LogEntry, float64) {
+								run: func(w []core.Workload, seed int64, rep int) ([]core.LogEntry, float64) {
 									nodes := loader.LoadNodesFromCSV(nodesCSV)
 									sites := loader.LoadSitesFromCSV(sitesCSV)
 									loader.AttachSites(nodes, sites)
@@ -448,7 +464,7 @@ func main() {
 										return metrics.ComputeCICost(n, w, at)
 									}
 
-									applyArrivalSchedule(w, templateStart, bs, arrivalRate, arrivalMode, burstProb, burstMultiplier, scenarioSeed)
+									applyArrivalSchedule(w, templateStart, bs, arrivalRate, arrivalMode, burstProb, burstMultiplier, seed)
 									workloadByID := make(map[string]core.Workload, len(w))
 									for _, j := range w {
 										workloadByID[j.ID] = j
@@ -460,7 +476,7 @@ func main() {
 									elapsed := float64(time.Since(start).Milliseconds())
 
 									logs := sim.Logs()
-									writePerJobCSV(outDir, policyID, ciW, bs, target, arrivalRate, logs)
+									writePerJobCSV(outDir, policyID, ciW, bs, target, arrivalRate, rep, logs)
 
 									s := summariseRun(policyID, ciW, bs, target, arrivalRate, warmupDuration, logs, workloadByID)
 									s.ElapsedMs = elapsed
@@ -471,6 +487,7 @@ func main() {
 									s.LookaheadMin = lookaheadMin
 									s.DurationScale = durScale
 									s.DurationOverrides = durationsFlag
+									s.Rep = rep
 									if haveTheta {
 										s.ThetaE = theta.ThetaE
 										s.ThetaC = theta.ThetaC
@@ -482,10 +499,13 @@ func main() {
 						}
 					}
 
-					for _, spec := range specs {
-						wcopy := make([]core.Workload, target)
-						copy(wcopy, templateWl[:target])
-						_, _ = spec.run(wcopy)
+					for rep := 0; rep < defaultRepetitions; rep++ {
+						repSeed := scenarioSeed + int64(rep)*seedStride
+						for _, spec := range specs {
+							wcopy := make([]core.Workload, target)
+							copy(wcopy, templateWl[:target])
+							_, _ = spec.run(wcopy, repSeed, rep)
+						}
 					}
 				}
 			}
@@ -666,14 +686,20 @@ func carbonScalerLambda(ciWeight float64) float64 {
 }
 
 func calibrateHetWeights(ciWeight float64) (float64, float64, float64) {
-	_ = ciWeight
-	// Bias HetPolicy toward carbon-first decisions while keeping runtime/queueing sensitivity.
-	return 0.72, 0.18, 0.10
+	// Bias HetPolicy toward heterogeneity-aware runtime while keeping a carbon guard.
+	carbon := clampFloat(0.25+0.05*(0.4-ciWeight), 0.22, 0.30)
+	timeW := 0.40
+	energyW := 1 - carbon - timeW
+	if energyW < 0.25 {
+		energyW = 0.25
+		timeW = 1 - carbon - energyW
+	}
+	return carbon, timeW, energyW
 }
 
-func writePerJobCSV(outDir, policy string, ciW float64, bs int, jobCount int, arrivalRate float64, logs []core.LogEntry) {
+func writePerJobCSV(outDir, policy string, ciW float64, bs int, jobCount int, arrivalRate float64, rep int, logs []core.LogEntry) {
 	rateToken := strings.ReplaceAll(fmt.Sprintf("%.2f", arrivalRate), ".", "p")
-	fn := fmt.Sprintf("%s_%.2f_%d_%d_%s_results.csv", policy, ciW, jobCount, bs, rateToken)
+	fn := fmt.Sprintf("%s_%.2f_%d_%d_%s_rep%02d_results.csv", policy, ciW, jobCount, bs, rateToken, rep)
 	path := filepath.Join(outDir, fn)
 	f, err := os.Create(path)
 	must(err)
@@ -709,10 +735,11 @@ func writeSummary(outDir string, rows []SummaryRow) {
 
 	_ = w.Write([]string{
 		"policy", "ci_weight", "batch_size", "job_count", "arrival_rate", "warmup_min", "theta_e", "theta_c",
-		"total_ci_cost_g", "avg_ci_per_job_g", "cfp_g_per_cpu_hour",
-		"avg_wait_s", "makespan_s", "elapsed_ms", "num_jobs",
+		"total_ci_cost_g", "avg_ci_per_job_g", "carbon_median_g", "carbon_iqr_g", "cfp_g_per_cpu_hour",
+		"avg_wait_s", "wait_median_s", "wait_iqr_s", "makespan_s", "elapsed_ms", "num_jobs",
 		"alpha", "beta", "gamma",
 		"alpha_mass", "lookahead_min", "duration_scale", "duration_overrides",
+		"rep",
 	})
 
 	for _, r := range rows {
@@ -727,8 +754,12 @@ func writeSummary(outDir string, rows []SummaryRow) {
 			fmt.Sprintf("%.4f", r.ThetaC),
 			fmt.Sprintf("%.6f", r.TotalCICostG),
 			fmt.Sprintf("%.6f", r.AvgCIPerJobG),
+			fmt.Sprintf("%.6f", r.CarbonMedianG),
+			fmt.Sprintf("%.6f", r.CarbonIqrG),
 			fmt.Sprintf("%.6f", r.CFPgPerCPUHour),
 			fmt.Sprintf("%.6f", r.AvgWaitS),
+			fmt.Sprintf("%.6f", r.WaitMedianS),
+			fmt.Sprintf("%.6f", r.WaitIqrS),
 			fmt.Sprintf("%.6f", r.MakespanS),
 			fmt.Sprintf("%.3f", r.ElapsedMs),
 			strconv.Itoa(r.NumJobs),
@@ -739,6 +770,7 @@ func writeSummary(outDir string, rows []SummaryRow) {
 			strconv.Itoa(r.LookaheadMin),
 			fmt.Sprintf("%.3f", r.DurationScale),
 			r.DurationOverrides,
+			strconv.Itoa(r.Rep),
 		})
 	}
 
@@ -847,9 +879,13 @@ func summariseRun(policy string, ciW float64, bs int, jobCount int, arrivalRate 
 	var minStart, maxEnd time.Time
 
 	var cfp metrics.CFPAggregate
+	waitSamples := make([]float64, 0, len(effective))
+	ciSamples := make([]float64, 0, len(effective))
 	for i, le := range effective {
 		totalCI += le.CICost
 		sumWaitMs += le.WaitMS
+		waitSamples = append(waitSamples, float64(le.WaitMS)/1000.0)
+		ciSamples = append(ciSamples, le.CICost)
 		if i == 0 || le.Start.Before(minStart) {
 			minStart = le.Start
 		}
@@ -863,13 +899,21 @@ func summariseRun(policy string, ciW float64, bs int, jobCount int, arrivalRate 
 	}
 
 	n := len(effective)
-	avgWaitS := 0.0
+	medianWait := median(waitSamples)
+	waitSpread := iqr(waitSamples)
 	if n > 0 {
-		avgWaitS = float64(sumWaitMs) / 1000.0 / float64(n)
+		if medianWait == 0 {
+			medianWait = float64(sumWaitMs) / 1000.0 / float64(n)
+		}
 	}
 	makespanS := 0.0
 	if !minStart.IsZero() && !maxEnd.IsZero() {
 		makespanS = maxEnd.Sub(minStart).Seconds()
+	}
+	ciMedian := median(ciSamples)
+	ciSpread := iqr(ciSamples)
+	if ciMedian == 0 && n > 0 {
+		ciMedian = safeDiv(totalCI, float64(n))
 	}
 
 	return SummaryRow{
@@ -880,9 +924,13 @@ func summariseRun(policy string, ciW float64, bs int, jobCount int, arrivalRate 
 		ArrivalRate:       arrivalRate,
 		WarmupMinutes:     warmup.Minutes(),
 		TotalCICostG:      totalCI,
-		AvgCIPerJobG:      safeDiv(totalCI, float64(n)),
+		AvgCIPerJobG:      ciMedian,
 		CFPgPerCPUHour:    cfp.CFPgPerCPUHour(),
-		AvgWaitS:          avgWaitS,
+		AvgWaitS:          medianWait,
+		CarbonMedianG:     ciMedian,
+		CarbonIqrG:        ciSpread,
+		WaitMedianS:       medianWait,
+		WaitIqrS:          waitSpread,
 		MakespanS:         makespanS,
 		ElapsedMs:         0,
 		NumJobs:           n,
@@ -918,6 +966,51 @@ func safeDiv(a, b float64) float64 {
 		return 0
 	}
 	return a / b
+}
+
+func median(values []float64) float64 {
+	return quantile(values, 0.5)
+}
+
+func iqr(values []float64) float64 {
+	if len(values) == 0 {
+		return 0
+	}
+	return quantile(values, 0.75) - quantile(values, 0.25)
+}
+
+func quantile(values []float64, q float64) float64 {
+	if len(values) == 0 {
+		return 0
+	}
+	if q <= 0 {
+		min := values[0]
+		for _, v := range values[1:] {
+			if v < min {
+				min = v
+			}
+		}
+		return min
+	}
+	if q >= 1 {
+		max := values[0]
+		for _, v := range values[1:] {
+			if v > max {
+				max = v
+			}
+		}
+		return max
+	}
+	cp := append([]float64(nil), values...)
+	sort.Float64s(cp)
+	position := q * float64(len(cp)-1)
+	lower := int(math.Floor(position))
+	upper := int(math.Ceil(position))
+	if lower == upper {
+		return cp[lower]
+	}
+	weight := position - float64(lower)
+	return cp[lower]*(1-weight) + cp[upper]*weight
 }
 
 func must(err error) {

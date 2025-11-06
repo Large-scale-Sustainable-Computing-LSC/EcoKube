@@ -4,6 +4,6 @@ site-a-small-1,4,16,static:140,A,360,
 site-b-standard-0,8,32,sine:150:35:3600,B,420,
 site-b-standard-1,8,32,sine:170:30:2700,B,420,
 site-b-gpu-0,16,64,static:180,B,550,gpu=true
-site-c-memory-0,12,96,randwalk:130:220:900,C,480,
-site-c-gpu-0,32,128,randwalk:110:160:600,C,650,gpu=true
-site-c-standard-1,12,64,static:160,C,460,
+site-c-memory-0,12,96,randwalk:130:220:900,C,180,
+site-c-gpu-0,32,128,randwalk:110:160:600,C,240,gpu=true
+site-c-standard-1,12,64,static:160,C,170,
