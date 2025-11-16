@@ -2,7 +2,7 @@ package greenalg
 
 import (
 	"context"
-	api "github.com/g-uva/KubEnergySched/kubenergysched/pkg/core"
+	api "github.com/g-uva/EcoKube/kubenergysched/pkg/core"
 )
 
 type GreenAlgorithms struct{ W struct{ CI, Dur, Energy float64 } }

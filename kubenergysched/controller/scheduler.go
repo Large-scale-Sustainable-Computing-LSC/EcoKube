@@ -6,12 +6,12 @@ import (
 	"math"
 	"time"
 
-	"github.com/g-uva/KubEnergySched/kespolicy/carbonscaler"
-	"github.com/g-uva/KubEnergySched/kespolicy/hetpolicy"
-	"github.com/g-uva/KubEnergySched/kubenergysched/pkg/core"
-	"github.com/g-uva/KubEnergySched/kubenergysched/pkg/engine"
-	"github.com/g-uva/KubEnergySched/kubenergysched/pkg/metrics"
-	"github.com/g-uva/KubEnergySched/kubenergysched/pkg/types"
+	"github.com/g-uva/EcoKube/kespolicy/carbonscaler"
+	"github.com/g-uva/EcoKube/kespolicy/hetpolicy"
+	"github.com/g-uva/EcoKube/kubenergysched/pkg/core"
+	"github.com/g-uva/EcoKube/kubenergysched/pkg/engine"
+	"github.com/g-uva/EcoKube/kubenergysched/pkg/metrics"
+	"github.com/g-uva/EcoKube/kubenergysched/pkg/types"
 )
 
 type scheduler interface {

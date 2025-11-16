@@ -15,14 +15,14 @@ import (
 	"strings"
 	"time"
 
-	"github.com/g-uva/KubEnergySched/kespolicy/carbonscaler"
-	"github.com/g-uva/KubEnergySched/kespolicy/hetpolicy"
-	"github.com/g-uva/KubEnergySched/kespolicy/k8sched"
-	"github.com/g-uva/KubEnergySched/kespolicy/keids"
-	"github.com/g-uva/KubEnergySched/kespolicy/topsis"
-	"github.com/g-uva/KubEnergySched/kubenergysched/pkg/core"
-	"github.com/g-uva/KubEnergySched/kubenergysched/pkg/loader"
-	"github.com/g-uva/KubEnergySched/kubenergysched/pkg/metrics"
+	"github.com/g-uva/EcoKube/kespolicy/carbonscaler"
+	"github.com/g-uva/EcoKube/kespolicy/hetpolicy"
+	"github.com/g-uva/EcoKube/kespolicy/k8sched"
+	"github.com/g-uva/EcoKube/kespolicy/keids"
+	"github.com/g-uva/EcoKube/kespolicy/topsis"
+	"github.com/g-uva/EcoKube/kubenergysched/pkg/core"
+	"github.com/g-uva/EcoKube/kubenergysched/pkg/loader"
+	"github.com/g-uva/EcoKube/kubenergysched/pkg/metrics"
 )
 
 // cross-product: (policy × ci_weight × batch_size)

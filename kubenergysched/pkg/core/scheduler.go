@@ -6,7 +6,7 @@ import (
 	"math"
 	"time"
 
-	"github.com/g-uva/KubEnergySched/kubenergysched/pkg/forecast"
+	"github.com/g-uva/EcoKube/kubenergysched/pkg/forecast"
 )
 
 type Scores map[string]float64 // Lower is better.

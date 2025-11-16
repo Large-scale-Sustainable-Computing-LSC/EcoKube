@@ -2,7 +2,7 @@ package ecovisor
 
 import (
 	"context"
-	api "github.com/g-uva/KubEnergySched/kubenergysched/pkg/core"
+	api "github.com/g-uva/EcoKube/kubenergysched/pkg/core"
 )
 
 type CarbonScaler struct{ Lambda float64 }

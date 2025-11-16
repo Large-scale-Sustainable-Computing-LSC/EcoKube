@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/g-uva/KubEnergySched/kubenergysched/pkg/generator"
+	"github.com/g-uva/EcoKube/kubenergysched/pkg/generator"
 )
 
 type siteJSON struct {

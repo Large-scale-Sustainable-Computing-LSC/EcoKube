@@ -7,8 +7,8 @@ toolchain go1.24.9
 // toolchain go1.24.4
 
 require (
-	github.com/g-uva/KubEnergySched/kespolicy v0.0.0
-	github.com/g-uva/KubEnergySched/kubenergysched v0.0.0
+	github.com/g-uva/EcoKube/kespolicy v0.0.0
+	github.com/g-uva/EcoKube/kubenergysched v0.0.0
 	k8s.io/api v0.30.1
 	k8s.io/apimachinery v0.30.1
 	k8s.io/client-go v0.30.1
@@ -59,6 +59,6 @@ require (
 	sigs.k8s.io/yaml v1.3.0 // indirect
 )
 
-replace github.com/g-uva/KubEnergySched/kubenergysched => ../
+replace github.com/g-uva/EcoKube/kubenergysched => ../
 
-replace github.com/g-uva/KubEnergySched/kespolicy => ../../kespolicy
+replace github.com/g-uva/EcoKube/kespolicy => ../../kespolicy

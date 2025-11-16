@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/g-uva/KubEnergySched/kubenergysched/pkg/core"
+	"github.com/g-uva/EcoKube/kubenergysched/pkg/core"
 	"gopkg.in/yaml.v3"
 )
 

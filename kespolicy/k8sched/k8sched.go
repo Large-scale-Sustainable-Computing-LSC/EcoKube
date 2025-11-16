@@ -5,7 +5,7 @@ import (
 	"math"
 	"time"
 
-	"github.com/g-uva/KubEnergySched/kubenergysched/pkg/core"
+	"github.com/g-uva/EcoKube/kubenergysched/pkg/core"
 )
 
 type Policy struct{}

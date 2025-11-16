@@ -5,8 +5,8 @@ import (
 	"math"
 	"time"
 
-	"github.com/g-uva/KubEnergySched/kubenergysched/pkg/core"
-	"github.com/g-uva/KubEnergySched/kubenergysched/pkg/metrics"
+	"github.com/g-uva/EcoKube/kubenergysched/pkg/core"
+	"github.com/g-uva/EcoKube/kubenergysched/pkg/metrics"
 )
 
 // Metrics captures feasibility and sustainability signals for a candidate node.

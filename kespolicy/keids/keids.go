@@ -5,8 +5,8 @@ import (
 	"math"
 	"time"
 
-	"github.com/g-uva/KubEnergySched/kespolicy/internal/candidate"
-	"github.com/g-uva/KubEnergySched/kubenergysched/pkg/core"
+	"github.com/g-uva/EcoKube/kespolicy/internal/candidate"
+	"github.com/g-uva/EcoKube/kubenergysched/pkg/core"
 )
 
 // Weights mirrors the thesis notation (α carbon, β runtime, γ queueing).

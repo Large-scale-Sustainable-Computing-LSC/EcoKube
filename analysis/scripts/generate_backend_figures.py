@@ -213,6 +213,8 @@ def _load_k8s_runs() -> tuple[pd.DataFrame, pd.DataFrame]:
     run_rows = []
     site_rows = []
 
+    node_power, site_power, fallback_power = _load_node_power()
+
     for per_job_path in sorted(K8S_RESULTS_DIR.glob("*/per_job.csv")):
         df = pd.read_csv(per_job_path)
         if df.empty or "policy" not in df.columns:
@@ -276,6 +278,93 @@ def _load_k8s_runs() -> tuple[pd.DataFrame, pd.DataFrame]:
                 {
                     "backend": "k8s",
                     "policy": policy,
+                    "batch_id": batch_id,
+                    "site": site,
+                    "assigned_jobs": int(count),
+                }
+            )
+
+    return pd.DataFrame(run_rows), pd.DataFrame(site_rows)
+
+
+def _load_k8s_default_from_sim(
+    node_power: dict[str, float],
+    site_power: dict[str, float],
+    fallback_power: float,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Derive k8s-default prototype runs from simulator traces."""
+
+    run_rows: list[dict] = []
+    site_rows: list[dict] = []
+
+    for path in sorted(Path("kubenergysched/results").glob("k8s_*_results.csv")):
+        df = pd.read_csv(path)
+        if df.empty:
+            continue
+        batch_id = str(path)
+        jobs = len(df)
+
+        submit = pd.to_datetime(df.get("submit"), errors="coerce", utc=True)
+        start = pd.to_datetime(df.get("start"), errors="coerce", utc=True)
+        end = pd.to_datetime(df.get("end"), errors="coerce", utc=True)
+
+        wait_s = pd.to_numeric(df.get("wait_ms"), errors="coerce") / 1000.0
+        carbon = pd.to_numeric(df.get("ci_cost"), errors="coerce").fillna(0.0)
+
+        node_names = df.get("node", pd.Series(index=df.index, dtype=object))
+        site_names = df.get("site", pd.Series(index=df.index, dtype=object))
+
+        power_w = []
+        for node, site in zip(node_names, site_names):
+            value = _resolve_power(
+                str(node) if pd.notna(node) else "",
+                str(site) if pd.notna(site) and site != "" else None,
+                node_power,
+                site_power,
+                fallback_power,
+            )
+            power_w.append(value)
+        power_w = pd.Series(power_w, index=df.index, dtype=float)
+
+        runtime_s = (end - start).dt.total_seconds().fillna(0.0).clip(lower=0.0)
+        energy_kwh = (power_w * runtime_s) / 3_600_000.0
+
+        earliest = (
+            pd.concat([submit, start], axis=1)
+            .min(axis=1, skipna=True)
+            .dropna()
+        )
+        latest = (
+            pd.concat([end, start], axis=1)
+            .max(axis=1, skipna=True)
+            .dropna()
+        )
+        makespan_min = _compute_makespan_minutes(earliest, latest)
+
+        run_rows.append(
+            {
+                "backend": "k8s",
+                "policy": "k8s-default",
+                "batch_id": batch_id,
+                "jobs": jobs,
+                "energy_kwh": energy_kwh.sum(),
+                "carbon_gco2e": carbon.sum(),
+                "makespan_min": makespan_min,
+                "latency_p95_s": _quantile(wait_s, 0.95),
+            }
+        )
+
+        site_counts = (
+            site_names.fillna("unknown")
+            .replace({"": "unknown"})
+            .value_counts(dropna=False)
+            .to_dict()
+        )
+        for site, count in site_counts.items():
+            site_rows.append(
+                {
+                    "backend": "k8s",
+                    "policy": "k8s-default",
                     "batch_id": batch_id,
                     "site": site,
                     "assigned_jobs": int(count),
@@ -555,6 +644,13 @@ def generate_figures() -> None:
     node_power, site_power, fallback_power = _load_node_power()
     sim_runs, sim_sites = _load_sim_runs(node_power, site_power, fallback_power)
     k8s_runs, k8s_sites = _load_k8s_runs()
+    k8s_default_runs, k8s_default_sites = _load_k8s_default_from_sim(
+        node_power, site_power, fallback_power
+    )
+    if not k8s_default_runs.empty:
+        k8s_runs = pd.concat([k8s_runs, k8s_default_runs], ignore_index=True)
+    if not k8s_default_sites.empty:
+        k8s_sites = pd.concat([k8s_sites, k8s_default_sites], ignore_index=True)
 
     run_df = pd.concat([sim_runs, k8s_runs], ignore_index=True, sort=False)
     site_df = pd.concat([sim_sites, k8s_sites], ignore_index=True, sort=False)

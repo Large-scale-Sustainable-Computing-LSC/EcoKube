@@ -5,8 +5,8 @@ import (
 	"math"
 	"time"
 
-	"github.com/g-uva/KubEnergySched/kubenergysched/pkg/core"
-	"github.com/g-uva/KubEnergySched/kubenergysched/pkg/metrics"
+	"github.com/g-uva/EcoKube/kubenergysched/pkg/core"
+	"github.com/g-uva/EcoKube/kubenergysched/pkg/metrics"
 )
 
 // Weights mirrors the original THEMIS axes: carbon, waiting time, utilisation.

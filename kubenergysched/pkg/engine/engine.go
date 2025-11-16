@@ -6,8 +6,8 @@ import (
     "sort"
     "time"
 
-    "github.com/g-uva/KubEnergySched/kubenergysched/pkg/providers"
-    "github.com/g-uva/KubEnergySched/kubenergysched/pkg/types"
+    "github.com/g-uva/EcoKube/kubenergysched/pkg/providers"
+    "github.com/g-uva/EcoKube/kubenergysched/pkg/types"
 )
 
 type Deps struct {

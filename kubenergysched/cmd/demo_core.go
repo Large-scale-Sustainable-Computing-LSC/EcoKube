@@ -7,9 +7,9 @@ import (
     "os"
     "time"
 
-    "github.com/g-uva/KubEnergySched/kubenergysched/pkg/engine"
-    "github.com/g-uva/KubEnergySched/kubenergysched/pkg/providers"
-    "github.com/g-uva/KubEnergySched/kubenergysched/pkg/types"
+    "github.com/g-uva/EcoKube/kubenergysched/pkg/engine"
+    "github.com/g-uva/EcoKube/kubenergysched/pkg/providers"
+    "github.com/g-uva/EcoKube/kubenergysched/pkg/types"
 )
 
 // demo_core shows a minimal end-to-end call to the unified engine.
