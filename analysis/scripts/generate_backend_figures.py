@@ -420,57 +420,35 @@ def _plot_pareto(
     colors: dict[str, str],
     outfile: Path,
 ) -> None:
-    if backend == "sim":
-        policy_rows = df[df["backend"] == backend].dropna(subset=["carbon_per_job", "latency_p95_s"])
-        policy_rows = policy_rows[
-            (policy_rows["carbon_per_job"] > 0) & (policy_rows["latency_p95_s"] > 0)
-        ]
-        if policy_rows.empty:
-            fig, ax = plt.subplots(figsize=(7, 5))
-            ax.text(0.5, 0.5, "Carbon/latency data unavailable", ha="center", va="center")
-            ax.axis("off")
-            fig.savefig(outfile, dpi=300, bbox_inches="tight")
-            plt.close(fig)
-            return
-        stats = (
-            policy_rows.groupby("policy")
-            .agg(
-                energy_median=("carbon_per_job", "median"),
-                energy_q1=("carbon_per_job", lambda s: s.quantile(0.25)),
-                energy_q3=("carbon_per_job", lambda s: s.quantile(0.75)),
-                carbon_median=("latency_p95_s", "median"),
-                carbon_q1=("latency_p95_s", lambda s: s.quantile(0.25)),
-                carbon_q3=("latency_p95_s", lambda s: s.quantile(0.75)),
-            )
-            .dropna()
-        )
-        x_label = "Carbon per job (gCO₂e)"
-        y_label = "Tail latency (p95, s)"
-    else:
-        policy_rows = df[df["backend"] == backend].dropna(subset=["energy_per_job", "carbon_per_job"])
-        policy_rows = policy_rows[(policy_rows["energy_per_job"] > 0) & (policy_rows["carbon_per_job"] > 0)]
-        if policy_rows.empty:
-            fig, ax = plt.subplots(figsize=(7, 5))
-            ax.text(0.5, 0.5, "Energy/carbon data unavailable", ha="center", va="center")
-            ax.axis("off")
-            fig.savefig(outfile, dpi=300, bbox_inches="tight")
-            plt.close(fig)
-            return
+    # Compare carbon per job against tail latency (preferred) or makespan.
+    policy_rows = df[df["backend"] == backend].copy()
+    has_latency = policy_rows["latency_p95_s"].notna().any()
+    y_field = "latency_p95_s" if has_latency else "makespan_min"
 
-        stats = (
-            policy_rows.groupby("policy")
-            .agg(
-                energy_median=("energy_per_job", "median"),
-                energy_q1=("energy_per_job", lambda s: s.quantile(0.25)),
-                energy_q3=("energy_per_job", lambda s: s.quantile(0.75)),
-                carbon_median=("carbon_per_job", "median"),
-                carbon_q1=("carbon_per_job", lambda s: s.quantile(0.25)),
-                carbon_q3=("carbon_per_job", lambda s: s.quantile(0.75)),
-            )
-            .dropna()
+    policy_rows = policy_rows.dropna(subset=["carbon_per_job", y_field])
+    policy_rows = policy_rows[(policy_rows["carbon_per_job"] > 0) & (policy_rows[y_field] > 0)]
+    if policy_rows.empty:
+        fig, ax = plt.subplots(figsize=(7, 5))
+        ax.text(0.5, 0.5, "Carbon/latency data unavailable", ha="center", va="center")
+        ax.axis("off")
+        fig.savefig(outfile, dpi=300, bbox_inches="tight")
+        plt.close(fig)
+        return
+
+    stats = (
+        policy_rows.groupby("policy")
+        .agg(
+            energy_median=("carbon_per_job", "median"),
+            energy_q1=("carbon_per_job", lambda s: s.quantile(0.25)),
+            energy_q3=("carbon_per_job", lambda s: s.quantile(0.75)),
+            carbon_median=(y_field, "median"),
+            carbon_q1=(y_field, lambda s: s.quantile(0.25)),
+            carbon_q3=(y_field, lambda s: s.quantile(0.75)),
         )
-        x_label = "Energy per job (kWh)"
-        y_label = "Carbon per job (gCO₂e)"
+        .dropna()
+    )
+    x_label = "Carbon per job (gCO₂e)"
+    y_label = "Tail latency (p95, s)" if has_latency else "Makespan (min)"
     policies = _policy_ordered(stats.index)
     stats = stats.loc[policies]
     mask = _pareto_front(stats[["energy_median", "carbon_median"]].to_numpy())
@@ -672,21 +650,16 @@ def _plot_site_stacked(
 def generate_figures() -> None:
     node_power, site_power, fallback_power = _load_node_power()
     sim_runs, sim_sites = _load_sim_runs(node_power, site_power, fallback_power)
-    k8s_runs, k8s_sites = _load_k8s_runs()
-    k8s_default_runs, k8s_default_sites = _load_k8s_default_from_sim(
-        node_power, site_power, fallback_power
-    )
-    if not k8s_default_runs.empty:
-        k8s_runs = pd.concat([k8s_runs, k8s_default_runs], ignore_index=True)
-    if not k8s_default_sites.empty:
-        k8s_sites = pd.concat([k8s_sites, k8s_default_sites], ignore_index=True)
+    # Skip Kubernetes backend while iterating on simulator plots.
+    k8s_runs = pd.DataFrame(columns=sim_runs.columns)
+    k8s_sites = pd.DataFrame(columns=sim_sites.columns)
 
     run_df = pd.concat([sim_runs, k8s_runs], ignore_index=True, sort=False)
     site_df = pd.concat([sim_sites, k8s_sites], ignore_index=True, sort=False)
     policy_df = _prepare_policy_frame(run_df)
 
     ASSETS_DIR.mkdir(parents=True, exist_ok=True)
-    for backend in ("sim", "k8s"):
+    for backend in ("sim",):
         backend_policies = policy_df.loc[policy_df["backend"] == backend, "policy"].unique()
         colors = _policy_colors(backend_policies)
 
