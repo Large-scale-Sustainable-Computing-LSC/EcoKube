@@ -406,6 +406,9 @@ def _policy_colors(policies: Iterable[str]) -> dict[str, str]:
 
 def _prepare_policy_frame(run_df: pd.DataFrame) -> pd.DataFrame:
     policy_rows = run_df.copy()
+    policy_rows["policy"] = policy_rows["policy"].apply(
+        lambda p: "hetpolicy" if isinstance(p, str) and p.lower().startswith("hetpolicy") else p
+    )
     policy_rows["energy_per_job"] = policy_rows["energy_kwh"] / policy_rows["jobs"]
     policy_rows["carbon_per_job"] = policy_rows["carbon_gco2e"] / policy_rows["jobs"]
     policy_rows["jobs_per_kwh"] = policy_rows["jobs"] / policy_rows["energy_kwh"].replace(
@@ -662,6 +665,9 @@ def generate_figures() -> None:
     run_df = pd.concat([sim_runs, k8s_runs], ignore_index=True, sort=False)
     site_df = pd.concat([sim_sites, k8s_sites], ignore_index=True, sort=False)
     policy_df = _prepare_policy_frame(run_df)
+    site_df["policy"] = site_df["policy"].apply(
+        lambda p: "hetpolicy" if isinstance(p, str) and p.lower().startswith("hetpolicy") else p
+    )
 
     ASSETS_DIR.mkdir(parents=True, exist_ok=True)
     for backend in ("sim", "k8s"):
