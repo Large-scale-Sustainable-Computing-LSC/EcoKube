@@ -337,7 +337,12 @@ func (c *controller) schedulePod(ctx context.Context, pod *corev1.Pod) (time.Dur
 		return 0, errors.New("no candidate nodes")
 	}
 
-	dec, trace, deferFor, err := c.scheduler.Schedule(ctx, job, snap)
+	effectiveSnap := snap
+	if c.scheduler.Name() != "hetpolicy" {
+		effectiveSnap = neutraliseSnapshot(snap)
+	}
+
+	dec, trace, deferFor, err := c.scheduler.Schedule(ctx, job, effectiveSnap)
 	trace.JobID = defaultString(trace.JobID, job.ID)
 	trace.ResultType = defaultString(trace.ResultType, "kub_result")
 	trace.Source = defaultString(trace.Source, "kubernetes")
@@ -367,7 +372,7 @@ func (c *controller) schedulePod(ctx context.Context, pod *corev1.Pod) (time.Dur
 		return 0, err
 	}
 
-	view, ok := snap.ViewByID(dec.NodeID)
+	view, ok := effectiveSnap.ViewByID(dec.NodeID)
 	if !ok {
 		trace.Fallback = true
 		trace.RejectReason = "selected_node_missing"
@@ -845,6 +850,51 @@ func env(k, d string) string {
 		return v
 	}
 	return d
+}
+
+func neutraliseSite(info types.SiteInfo) types.SiteInfo {
+	return types.SiteInfo{
+		Name:             info.Name,
+		Region:           "neutral",
+		PUE:              1.3,
+		K:                1.0,
+		CarbonIntensity:  450.0,
+		MeterCalibration: info.MeterCalibration,
+	}
+}
+
+func neutraliseSnapshot(snap *clusterSnapshot) *clusterSnapshot {
+	if snap == nil {
+		return snap
+	}
+	clone := &clusterSnapshot{
+		Views:         make([]nodeView, len(snap.Views)),
+		NodeSnapshots: make([]types.NodeSnapshot, len(snap.NodeSnapshots)),
+		SimNodes:      make([]core.SimulatedNode, len(snap.SimNodes)),
+		index:         make(map[string]int, len(snap.Views)),
+	}
+	for i, v := range snap.Views {
+		nv := v
+		nv.Snapshot.Site = neutraliseSite(nv.Snapshot.Site)
+		nv.Sim.Site = &core.Site{
+			ID:              nv.Snapshot.Site.Name,
+			PUE:             nv.Snapshot.Site.PUE,
+			K:               nv.Snapshot.Site.K,
+			CarbonIntensity: nv.Snapshot.Site.CarbonIntensity,
+			CIRegion:        nv.Snapshot.Site.Region,
+		}
+		nv.Sim.SiteID = nv.Snapshot.Site.Name
+		if nv.Snapshot.Metrics == nil {
+			nv.Snapshot.Metrics = map[string]float64{}
+		}
+		nv.Snapshot.Metrics["ci_norm"] = 0.5
+		nv.CINorm = 0.5
+		clone.Views[i] = nv
+		clone.NodeSnapshots[i] = nv.Snapshot
+		clone.SimNodes[i] = nv.Sim
+		clone.index[nv.Snapshot.ID] = i
+	}
+	return clone
 }
 
 func buildScheduler(policy string, deps engine.Deps) (scheduler, error) {

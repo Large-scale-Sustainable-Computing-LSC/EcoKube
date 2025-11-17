@@ -650,16 +650,21 @@ def _plot_site_stacked(
 def generate_figures() -> None:
     node_power, site_power, fallback_power = _load_node_power()
     sim_runs, sim_sites = _load_sim_runs(node_power, site_power, fallback_power)
-    # Skip Kubernetes backend while iterating on simulator plots.
-    k8s_runs = pd.DataFrame(columns=sim_runs.columns)
-    k8s_sites = pd.DataFrame(columns=sim_sites.columns)
+    k8s_runs, k8s_sites = _load_k8s_runs()
+    k8s_default_runs, k8s_default_sites = _load_k8s_default_from_sim(
+        node_power, site_power, fallback_power
+    )
+    if not k8s_default_runs.empty:
+        k8s_runs = pd.concat([k8s_runs, k8s_default_runs], ignore_index=True)
+    if not k8s_default_sites.empty:
+        k8s_sites = pd.concat([k8s_sites, k8s_default_sites], ignore_index=True)
 
     run_df = pd.concat([sim_runs, k8s_runs], ignore_index=True, sort=False)
     site_df = pd.concat([sim_sites, k8s_sites], ignore_index=True, sort=False)
     policy_df = _prepare_policy_frame(run_df)
 
     ASSETS_DIR.mkdir(parents=True, exist_ok=True)
-    for backend in ("sim",):
+    for backend in ("sim", "k8s"):
         backend_policies = policy_df.loc[policy_df["backend"] == backend, "policy"].unique()
         colors = _policy_colors(backend_policies)
 

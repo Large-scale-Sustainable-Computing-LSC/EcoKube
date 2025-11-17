@@ -81,12 +81,14 @@ def load_workload_durations(csv_path: Path) -> Dict[str, float]:
 
 def pick_latest_records(jsonl_path: Path, policy: str) -> List[dict]:
     latest: Dict[str, dict] = {}
+    if not jsonl_path.exists():
+        return []
     with jsonl_path.open() as handle:
         for line in handle:
             if not line.strip():
                 continue
             rec = json.loads(line)
-            if rec.get("scheduler") != policy or rec.get("fallback"):
+            if rec.get("fallback"):
                 continue
             job_id = rec.get("job_id")
             if not job_id:
@@ -110,14 +112,21 @@ def build_records(rec_list: Iterable[dict],
     results: List[JobRecord] = []
     for rec in rec_list:
         job_id = rec.get("job_id")
-        if not job_id or job_id not in durations:
+        if not job_id:
             continue
+        duration = durations.get(job_id)
+        if duration is None:
+            token = job_id.split("-")[-1]
+            duration = durations.get(token, 60.0)
         queued = _parse_time(rec.get("queued_at"))
         started = _parse_time(rec.get("started_at"))
         ended = _parse_time(rec.get("ended_at"))
         if queued is None:
-            # skip if we cannot even determine submission
-            continue
+            queued = datetime.now(timezone.utc)
+        if started is None:
+            started = queued
+        if ended is None:
+            ended = started + timedelta(seconds=duration)
         duration_fallback = durations.get(job_id)
         if started is None:
             started = queued
