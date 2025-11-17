@@ -23,14 +23,14 @@ const (
 )
 
 const (
-	carbonGuardFraction       = 0.12
+	carbonGuardFraction       = 0.15
 	fitBonusBase              = 0.08
 	maxFitBonusFraction       = 0.10
 	interferencePenaltyFactor = 1.8
 	noiseAmplifier            = 1.2
 	minGuardSlack             = 0.008
 	queueGuardRelax           = 0.08
-	energyGuardFraction       = 0.08
+	energyGuardFraction       = 0.15
 	energyWeight              = 0.32
 )
 

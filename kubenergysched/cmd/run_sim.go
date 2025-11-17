@@ -222,6 +222,7 @@ func main() {
 								nodes := loader.LoadNodesFromCSV(nodesCSV)
 								sites := loader.LoadSitesFromCSV(sitesCSV)
 								loader.AttachSites(nodes, sites)
+								nodes = neutraliseSites(nodes)
 
 								pol := &k8sched.Policy{}
 								sim := &core.BaseSim{}
@@ -234,9 +235,10 @@ func main() {
 									return metrics.ComputeCICost(n, w, at)
 								}
 
-								applyArrivalSchedule(w, templateStart, bs, arrivalRate, arrivalMode, burstProb, burstMultiplier, seed)
-								workloadByID := make(map[string]core.Workload, len(w))
-								for _, j := range w {
+								workloads := scrubPreferredSite(w)
+								applyArrivalSchedule(workloads, templateStart, bs, arrivalRate, arrivalMode, burstProb, burstMultiplier, seed)
+								workloadByID := make(map[string]core.Workload, len(workloads))
+								for _, j := range workloads {
 									workloadByID[j.ID] = j
 									sim.AddWorkload(j)
 								}
@@ -270,6 +272,7 @@ func main() {
 								nodes := loader.LoadNodesFromCSV(nodesCSV)
 								sites := loader.LoadSitesFromCSV(sitesCSV)
 								loader.AttachSites(nodes, sites)
+								nodes = neutraliseSites(nodes)
 
 								pol := &keids.Policy{Weights: keids.DefaultWeights()}
 								sim := &core.BaseSim{}
@@ -282,9 +285,10 @@ func main() {
 									return metrics.ComputeCICost(n, w, at)
 								}
 
-								applyArrivalSchedule(w, templateStart, bs, arrivalRate, arrivalMode, burstProb, burstMultiplier, seed)
-								workloadByID := make(map[string]core.Workload, len(w))
-								for _, j := range w {
+								workloads := scrubPreferredSite(w)
+								applyArrivalSchedule(workloads, templateStart, bs, arrivalRate, arrivalMode, burstProb, burstMultiplier, seed)
+								workloadByID := make(map[string]core.Workload, len(workloads))
+								for _, j := range workloads {
 									workloadByID[j.ID] = j
 									sim.AddWorkload(j)
 								}
@@ -321,6 +325,7 @@ func main() {
 								nodes := loader.LoadNodesFromCSV(nodesCSV)
 								sites := loader.LoadSitesFromCSV(sitesCSV)
 								loader.AttachSites(nodes, sites)
+								nodes = neutraliseSites(nodes)
 
 								pol := &topsis.Policy{Weights: topsis.DefaultWeights()}
 								sim := &core.BaseSim{}
@@ -333,9 +338,10 @@ func main() {
 									return metrics.ComputeCICost(n, w, at)
 								}
 
-								applyArrivalSchedule(w, templateStart, bs, arrivalRate, arrivalMode, burstProb, burstMultiplier, seed)
-								workloadByID := make(map[string]core.Workload, len(w))
-								for _, j := range w {
+								workloads := scrubPreferredSite(w)
+								applyArrivalSchedule(workloads, templateStart, bs, arrivalRate, arrivalMode, burstProb, burstMultiplier, seed)
+								workloadByID := make(map[string]core.Workload, len(workloads))
+								for _, j := range workloads {
 									workloadByID[j.ID] = j
 									sim.AddWorkload(j)
 								}
@@ -373,6 +379,7 @@ func main() {
 								nodes := loader.LoadNodesFromCSV(nodesCSV)
 								sites := loader.LoadSitesFromCSV(sitesCSV)
 								loader.AttachSites(nodes, sites)
+								nodes = neutraliseSites(nodes)
 
 								pol := &carbonscaler.Policy{Cfg: carbonscaler.Config{Lambda: lambda}}
 								sim := &core.BaseSim{}
@@ -385,9 +392,10 @@ func main() {
 									return metrics.ComputeCICost(n, w, at)
 								}
 
-								applyArrivalSchedule(w, templateStart, bs, arrivalRate, arrivalMode, burstProb, burstMultiplier, seed)
-								workloadByID := make(map[string]core.Workload, len(w))
-								for _, j := range w {
+								workloads := scrubPreferredSite(w)
+								applyArrivalSchedule(workloads, templateStart, bs, arrivalRate, arrivalMode, burstProb, burstMultiplier, seed)
+								workloadByID := make(map[string]core.Workload, len(workloads))
+								for _, j := range workloads {
 									workloadByID[j.ID] = j
 									sim.AddWorkload(j)
 								}
@@ -695,6 +703,45 @@ func calibrateHetWeights(ciWeight float64) (float64, float64, float64) {
 		timeW = 1 - carbon - energyW
 	}
 	return carbon, timeW, energyW
+}
+
+func neutraliseSites(nodes []*core.SimulatedNode) []*core.SimulatedNode {
+	out := make([]*core.SimulatedNode, len(nodes))
+	for i, n := range nodes {
+		if n == nil {
+			continue
+		}
+		copyNode := *n
+		copyNode.Site = &core.Site{
+			ID:              "neutral",
+			PUE:             1.3,
+			K:               1.0,
+			CarbonIntensity: 450.0,
+			CIRegion:        "neutral",
+		}
+		copyNode.SiteID = ""
+		out[i] = &copyNode
+	}
+	return out
+}
+
+func scrubPreferredSite(workloads []core.Workload) []core.Workload {
+	out := make([]core.Workload, len(workloads))
+	for i, w := range workloads {
+		copyW := w
+		if len(copyW.Labels) > 0 {
+			labels := make(map[string]string, len(copyW.Labels))
+			for k, v := range copyW.Labels {
+				if strings.EqualFold(k, "preferred_site") {
+					continue
+				}
+				labels[k] = v
+			}
+			copyW.Labels = labels
+		}
+		out[i] = copyW
+	}
+	return out
 }
 
 func writePerJobCSV(outDir, policy string, ciW float64, bs int, jobCount int, arrivalRate float64, rep int, logs []core.LogEntry) {

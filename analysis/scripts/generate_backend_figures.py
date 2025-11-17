@@ -420,28 +420,57 @@ def _plot_pareto(
     colors: dict[str, str],
     outfile: Path,
 ) -> None:
-    policy_rows = df[df["backend"] == backend].dropna(subset=["energy_per_job", "carbon_per_job"])
-    policy_rows = policy_rows[(policy_rows["energy_per_job"] > 0) & (policy_rows["carbon_per_job"] > 0)]
-    if policy_rows.empty:
-        fig, ax = plt.subplots(figsize=(7, 5))
-        ax.text(0.5, 0.5, "Energy/carbon data unavailable", ha="center", va="center")
-        ax.axis("off")
-        fig.savefig(outfile, dpi=300, bbox_inches="tight")
-        plt.close(fig)
-        return
-
-    stats = (
-        policy_rows.groupby("policy")
-        .agg(
-            energy_median=("energy_per_job", "median"),
-            energy_q1=("energy_per_job", lambda s: s.quantile(0.25)),
-            energy_q3=("energy_per_job", lambda s: s.quantile(0.75)),
-            carbon_median=("carbon_per_job", "median"),
-            carbon_q1=("carbon_per_job", lambda s: s.quantile(0.25)),
-            carbon_q3=("carbon_per_job", lambda s: s.quantile(0.75)),
+    if backend == "sim":
+        policy_rows = df[df["backend"] == backend].dropna(subset=["carbon_per_job", "latency_p95_s"])
+        policy_rows = policy_rows[
+            (policy_rows["carbon_per_job"] > 0) & (policy_rows["latency_p95_s"] > 0)
+        ]
+        if policy_rows.empty:
+            fig, ax = plt.subplots(figsize=(7, 5))
+            ax.text(0.5, 0.5, "Carbon/latency data unavailable", ha="center", va="center")
+            ax.axis("off")
+            fig.savefig(outfile, dpi=300, bbox_inches="tight")
+            plt.close(fig)
+            return
+        stats = (
+            policy_rows.groupby("policy")
+            .agg(
+                energy_median=("carbon_per_job", "median"),
+                energy_q1=("carbon_per_job", lambda s: s.quantile(0.25)),
+                energy_q3=("carbon_per_job", lambda s: s.quantile(0.75)),
+                carbon_median=("latency_p95_s", "median"),
+                carbon_q1=("latency_p95_s", lambda s: s.quantile(0.25)),
+                carbon_q3=("latency_p95_s", lambda s: s.quantile(0.75)),
+            )
+            .dropna()
         )
-        .dropna()
-    )
+        x_label = "Carbon per job (gCO₂e)"
+        y_label = "Tail latency (p95, s)"
+    else:
+        policy_rows = df[df["backend"] == backend].dropna(subset=["energy_per_job", "carbon_per_job"])
+        policy_rows = policy_rows[(policy_rows["energy_per_job"] > 0) & (policy_rows["carbon_per_job"] > 0)]
+        if policy_rows.empty:
+            fig, ax = plt.subplots(figsize=(7, 5))
+            ax.text(0.5, 0.5, "Energy/carbon data unavailable", ha="center", va="center")
+            ax.axis("off")
+            fig.savefig(outfile, dpi=300, bbox_inches="tight")
+            plt.close(fig)
+            return
+
+        stats = (
+            policy_rows.groupby("policy")
+            .agg(
+                energy_median=("energy_per_job", "median"),
+                energy_q1=("energy_per_job", lambda s: s.quantile(0.25)),
+                energy_q3=("energy_per_job", lambda s: s.quantile(0.75)),
+                carbon_median=("carbon_per_job", "median"),
+                carbon_q1=("carbon_per_job", lambda s: s.quantile(0.25)),
+                carbon_q3=("carbon_per_job", lambda s: s.quantile(0.75)),
+            )
+            .dropna()
+        )
+        x_label = "Energy per job (kWh)"
+        y_label = "Carbon per job (gCO₂e)"
     policies = _policy_ordered(stats.index)
     stats = stats.loc[policies]
     mask = _pareto_front(stats[["energy_median", "carbon_median"]].to_numpy())
@@ -478,9 +507,9 @@ def _plot_pareto(
         hull = pd.DataFrame({"x": front_x, "y": front_y}).sort_values(["x", "y"])
         ax.plot(hull["x"], hull["y"], color="#333333", linestyle="--", linewidth=1.2)
 
-    ax.set_xlabel("Energy per job (kWh)")
-    ax.set_ylabel("Carbon per job (gCO₂e)")
-    ax.set_title(f"{backend.upper()} Pareto: energy vs. carbon")
+    ax.set_xlabel(x_label)
+    ax.set_ylabel(y_label)
+    ax.set_title(f"{backend.upper()} Pareto")
     ax.grid(alpha=0.3, linestyle=":")
     fig.tight_layout()
     fig.savefig(outfile, dpi=300, bbox_inches="tight")

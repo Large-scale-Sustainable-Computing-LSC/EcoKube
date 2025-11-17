@@ -95,23 +95,8 @@ func (b *BaseSim) Run() {
 				siteID = n.SiteID
 			}
 
-			transferDelay := time.Duration(0)
-			runtimePenalty := time.Duration(0)
-			if w.Labels != nil {
-				if preferred := w.Labels["preferred_site"]; preferred != "" {
-					if siteID != "" && siteID != preferred {
-						transferDelay = 15 * time.Minute
-						runtimePenalty = 10 * time.Minute
-					}
-				}
-			}
-
-			start := b.Clock.Add(transferDelay)
-
+			start := b.Clock
 			work := w
-			if runtimePenalty > 0 {
-				work.Duration += runtimePenalty
-			}
 
 			var ci float64
 			if b.CICalc != nil {
