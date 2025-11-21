@@ -6,6 +6,7 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 NAMESPACE="${WORKLOAD_NS:-workloads}"
 HELM_RELEASE="${KES_HELM_RELEASE:-kes-replay}"
 HELM_NAMESPACE="${KES_HELM_NAMESPACE:-$NAMESPACE}"
+CONTROLLER_DEPLOYMENT="${KES_CONTROLLER_DEPLOYMENT:-ciw-controller}"
 CHART_DIR="$REPO_ROOT/k8s/helm"
 MANIFEST_DIR="$REPO_ROOT/k8s/manifests"
 CONFIG_DIR="$REPO_ROOT/kubenergysched/config"
@@ -65,7 +66,7 @@ fetch() {
   mkdir -p "$(dirname "$out")"
   echo ">>> Exporting decisions to $out"
   echo ">>> Namespace is $NAMESPACE"
-  kubectl -n "$NAMESPACE" exec deploy/ci-aware-controller -- cat /var/log/ciw/decisions.jsonl > "$out"
+  kubectl -n "$NAMESPACE" exec deploy/"$CONTROLLER_DEPLOYMENT" -c tailer -- cat /var/log/ciw/decisions.jsonl > "$out"
 }
 
 status() {

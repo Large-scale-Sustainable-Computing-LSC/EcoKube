@@ -211,6 +211,56 @@ func (c *carbonScheduler) Schedule(ctx context.Context, job types.Job, snap *clu
 	return dec, trace, 0, nil
 }
 
+type k8sScheduler struct {
+	deps engine.Deps
+}
+
+func newK8sScheduler(deps engine.Deps) scheduler {
+	return &k8sScheduler{deps: deps}
+}
+
+func (k *k8sScheduler) Name() string { return "k8s" }
+
+func (k *k8sScheduler) Schedule(ctx context.Context, job types.Job, snap *clusterSnapshot) (types.Decision, types.DecisionTrace, time.Duration, error) {
+	if snap == nil || len(snap.Views) == 0 {
+		return types.Decision{}, types.DecisionTrace{JobID: job.ID, Fallback: true, RejectReason: "no_nodes"}, 0, fmt.Errorf("k8s: no nodes")
+	}
+	scores, traces := engine.ScoreNodes(ctx, job, snap.NodeSnapshots, k.deps)
+	if len(scores) == 0 {
+		return types.Decision{}, types.DecisionTrace{JobID: job.ID, Fallback: true, RejectReason: "no_candidate"}, 0, fmt.Errorf("k8s: no candidate")
+	}
+
+	// Pick the feasible node with the smallest queue length (closest to default scheduler behaviour).
+	bestID := ""
+	bestQueue := math.MaxFloat64
+	for _, v := range snap.Views {
+		if _, ok := scores[v.Snapshot.ID]; !ok {
+			continue
+		}
+		if v.QueueSeconds < bestQueue {
+			bestQueue = v.QueueSeconds
+			bestID = v.Snapshot.ID
+		}
+	}
+	if bestID == "" {
+		return types.Decision{}, types.DecisionTrace{JobID: job.ID, Fallback: true, RejectReason: "no_candidate"}, 0, fmt.Errorf("k8s: no candidate")
+	}
+
+	trace := traces[bestID]
+	trace.Scheduler = k.Name()
+	dec := types.Decision{NodeID: bestID, Scale: 1}
+	trace.Scale = dec.Scale
+	if snap != nil {
+		if view, ok := snap.ViewByID(bestID); ok {
+			if trace.Site == "" {
+				trace.Site = view.Snapshot.Site.Name
+			}
+			trace.QueueSeconds = view.QueueSeconds
+		}
+	}
+	return dec, trace, 0, nil
+}
+
 func queueSecondsForNode(n *core.SimulatedNode, now time.Time) float64 {
 	if n == nil {
 		return 0

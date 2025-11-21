@@ -86,14 +86,15 @@ type siteCfg struct {
 }
 
 type controller struct {
-	namespace string
-	runID     string
-	sites     map[string]siteCfg
-	cs        *kubernetes.Clientset
-	scheduler scheduler
-	deps      engine.Deps
-	writer    *jsonlWriter
-	nodeCap   int
+	namespace     string
+	schedulerName string
+	runID         string
+	sites         map[string]siteCfg
+	cs            *kubernetes.Clientset
+	scheduler     scheduler
+	deps          engine.Deps
+	writer        *jsonlWriter
+	nodeCap       int
 
 	podLister   corelisters.PodLister
 	podInformer cache.SharedIndexInformer
@@ -116,6 +117,7 @@ func main() {
 	tracePath := env("TRACE_PATH", "/var/log/ciw/decisions.jsonl")
 	sitesPath := env("SITES_PATH", "/etc/ci-aware/sites.json")
 	runID := os.Getenv("TRACE_RUN_ID")
+	schedulerName := env("CIW_SCHEDULER_NAME", "ci-aware")
 	policyName := env("SCHEDULER_POLICY", "hetpolicy")
 	nodeCap := parseEnvInt("CIW_NODE_CAP", 0)
 
@@ -175,19 +177,20 @@ func main() {
 	podInformer := factory.Core().V1().Pods().Informer()
 
 	ctrl := &controller{
-		namespace:   ns,
-		runID:       runID,
-		sites:       sites,
-		cs:          cs,
-		scheduler:   sched,
-		deps:        deps,
-		writer:      writer,
-		podLister:   factory.Core().V1().Pods().Lister(),
-		podInformer: podInformer,
-		queue:       workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), "ciw-pods"),
-		states:      map[string]*podState{},
-		now:         time.Now,
-		nodeCap:     nodeCap,
+		namespace:     ns,
+		runID:         runID,
+		schedulerName: schedulerName,
+		sites:         sites,
+		cs:            cs,
+		scheduler:     sched,
+		deps:          deps,
+		writer:        writer,
+		podLister:     factory.Core().V1().Pods().Lister(),
+		podInformer:   podInformer,
+		queue:         workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), "ciw-pods"),
+		states:        map[string]*podState{},
+		now:           time.Now,
+		nodeCap:       nodeCap,
 	}
 
 	podInformer.AddEventHandler(cache.ResourceEventHandlerFuncs{
@@ -271,7 +274,7 @@ func (c *controller) processNextItem(ctx context.Context) bool {
 		c.queue.AddRateLimited(obj)
 		return true
 	}
-	if !shouldSchedule(pod) {
+	if !shouldSchedule(pod, c.schedulerName) {
 		c.queue.Forget(obj)
 		return true
 	}
@@ -292,7 +295,7 @@ func (c *controller) processNextItem(ctx context.Context) bool {
 	return true
 }
 
-func shouldSchedule(pod *corev1.Pod) bool {
+func shouldSchedule(pod *corev1.Pod, schedulerName string) bool {
 	if pod == nil {
 		return false
 	}
@@ -302,6 +305,9 @@ func shouldSchedule(pod *corev1.Pod) bool {
 	if pod.Spec.NodeName != "" {
 		return false
 	}
+	if schedulerName != "" && pod.Spec.SchedulerName != "" && pod.Spec.SchedulerName != schedulerName {
+		return false
+	}
 	if pod.Annotations != nil && pod.Annotations["ci-aware/scheduled"] == "true" {
 		return false
 	}
@@ -309,7 +315,7 @@ func shouldSchedule(pod *corev1.Pod) bool {
 }
 
 func (c *controller) enqueueIfNeeded(pod *corev1.Pod) {
-	if !shouldSchedule(pod) {
+	if !shouldSchedule(pod, c.schedulerName) {
 		return
 	}
 	key, err := cache.MetaNamespaceKeyFunc(pod)
@@ -525,6 +531,12 @@ func (c *controller) recordState(pod *corev1.Pod, trace types.DecisionTrace) {
 		c.states[key] = st
 	}
 	st.Trace = trace
+	if st.Trace.Scheduler == "" {
+		st.Trace.Scheduler = c.scheduler.Name()
+	}
+	if st.Trace.Source == "" {
+		st.Trace.Source = "kubernetes"
+	}
 	if st.Trace.JobID == "" {
 		st.Trace.JobID = string(pod.UID)
 	}
@@ -583,9 +595,6 @@ func (c *controller) observePod(pod *corev1.Pod) {
 	if pod == nil {
 		return
 	}
-	if pod.Annotations == nil || pod.Annotations["ci-aware/scheduled"] != "true" {
-		return
-	}
 	key := string(pod.UID)
 	c.stateMu.Lock()
 	st := c.states[key]
@@ -602,6 +611,10 @@ func (c *controller) observePod(pod *corev1.Pod) {
 	start := podStartTime(pod)
 	end := podCompletionTime(pod)
 	changed := false
+	if st.Trace.Scheduler == "" {
+		st.Trace.Scheduler = c.scheduler.Name()
+		changed = true
+	}
 	if !start.IsZero() && st.Trace.StartedAt.IsZero() {
 		st.Trace.StartedAt = start
 		st.StartRecorded = true
@@ -854,12 +867,11 @@ func env(k, d string) string {
 
 func neutraliseSite(info types.SiteInfo) types.SiteInfo {
 	return types.SiteInfo{
-		Name:             info.Name,
-		Region:           "neutral",
-		PUE:              1.3,
-		K:                1.0,
-		CarbonIntensity:  450.0,
-		MeterCalibration: info.MeterCalibration,
+		Name:            info.Name,
+		Region:          "neutral",
+		PUE:             1.3,
+		K:               1.0,
+		CarbonIntensity: 450.0,
 	}
 }
 
@@ -920,6 +932,8 @@ func buildScheduler(policy string, deps engine.Deps) (scheduler, error) {
 		threshold := parseEnvFloat("CARBONSCALER_DEFER_THRESHOLD", 0.6)
 		pol := &carbonscaler.Policy{Cfg: carbonscaler.Config{Lambda: lambda}}
 		return newCarbonScheduler(pol, deps, shift, elasticity, threshold), nil
+	case "k8s", "kubernetes", "default", "default-scheduler":
+		return newK8sScheduler(deps), nil
 	default:
 		return nil, fmt.Errorf("unknown scheduler policy %q", policy)
 	}
@@ -931,6 +945,8 @@ func normalizePolicy(s string) string {
 		return "hetpolicy"
 	case "carbonscaler", "carbon", "carbon-scaler":
 		return "carbonscaler"
+	case "k8s", "kubernetes", "default", "default-scheduler":
+		return "k8s"
 	default:
 		return strings.ToLower(s)
 	}

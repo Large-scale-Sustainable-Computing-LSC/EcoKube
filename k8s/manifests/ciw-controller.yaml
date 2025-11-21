@@ -61,6 +61,8 @@ spec:
           env:
             - name: WORKLOAD_NS
               value: "workloads"
+            - name: CIW_SCHEDULER_NAME
+              value: "ci-aware"
             - name: SITES_PATH
               value: "/etc/ci-aware/sites.json"
             - name: TRACE_PATH

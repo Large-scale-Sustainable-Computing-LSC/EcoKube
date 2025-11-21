@@ -34,7 +34,7 @@ spec:
       restartPolicy: Never
       containers:
         - name: replayer
-          image: goncaloferreirauva/workload-replayer:latest
+          image: workload-replayer:local
           imagePullPolicy: IfNotPresent
           env:
             - name: WORKLOAD_NS
@@ -49,6 +49,8 @@ spec:
               value: "hetpolicy"
             - name: DEFAULT_MAX_DEFER_FRACTION
               value: "0.25"
+            - name: SCHEDULER_NAME
+              value: "ci-aware"
           volumeMounts:
             - { name: data, mountPath: /data }
       volumes:

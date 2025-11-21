@@ -272,15 +272,16 @@ def export_figures(summary_df: pd.DataFrame, out_dir: Path) -> None:
         raise RuntimeError(
             "matplotlib is required to export figures. "
             "Install it with `pip install matplotlib` in your environment."
-        )
+    )
 
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    ordered = summary_df.sort_values("total_ci_cost_g", na_position="last")
+    xcol = "total_ci_cost_g"
+    ordered = summary_df.sort_values(xcol, na_position="last")
 
     fig, ax = plt.subplots(figsize=(8, 5))
     scatter = ax.scatter(
-        ordered["total_ci_cost_g"],
+        ordered[xcol],
         ordered["avg_wait_s"],
         s=110,
         c="tab:blue",
@@ -289,7 +290,7 @@ def export_figures(summary_df: pd.DataFrame, out_dir: Path) -> None:
     for _, row in ordered.iterrows():
         ax.annotate(
             row["policy"],
-            (row["total_ci_cost_g"], row["avg_wait_s"]),
+            (row[xcol], row["avg_wait_s"]),
             textcoords="offset points",
             xytext=(6, 6),
         )
@@ -303,14 +304,14 @@ def export_figures(summary_df: pd.DataFrame, out_dir: Path) -> None:
     plt.close(fig)
 
     fig, ax = plt.subplots(figsize=(8, 5))
-    pareto_df = compute_pareto(summary_df, objectives=("total_ci_cost_g", "makespan_s"))
+    pareto_df = compute_pareto(summary_df, objectives=(xcol, "makespan_s"))
     pareto_indices = set(pareto_df.index)
 
     for idx, row in ordered.iterrows():
         is_pareto = idx in pareto_indices
         color = "tab:orange" if is_pareto else "lightgray"
         ax.scatter(
-            row["total_ci_cost_g"],
+            row[xcol],
             row["makespan_s"],
             s=120,
             c=color,
@@ -318,7 +319,7 @@ def export_figures(summary_df: pd.DataFrame, out_dir: Path) -> None:
         )
         ax.annotate(
             row["policy"],
-            (row["total_ci_cost_g"], row["makespan_s"]),
+            (row[xcol], row["makespan_s"]),
             textcoords="offset points",
             xytext=(6, 6),
         )
@@ -362,6 +363,7 @@ def run(
     het_path: Path | str,
     carb_path: Path | str,
     output_dir: Path | str,
+    k8s_path: Path | str | None = None,
     workloads_path: Path | str = Path("kubenergysched/config/workloads.csv"),
     e_ref: float = DEFAULT_E_REF,
     c_ref: float = DEFAULT_C_REF,
@@ -369,6 +371,7 @@ def run(
 ) -> Dict[str, List[dict]]:
     het_path = Path(het_path)
     carb_path = Path(carb_path)
+    k8s_path = Path(k8s_path) if k8s_path is not None else None
     output_dir = Path(output_dir)
     workloads_path = Path(workloads_path)
 
@@ -377,7 +380,11 @@ def run(
     summaries: Dict[str, Dict[str, float]] = {}
     combined_frames: List[pd.DataFrame] = []
 
-    for policy, path in (("hetpolicy", het_path), ("carbonscaler", carb_path)):
+    paths = [("hetpolicy", het_path), ("carbonscaler", carb_path)]
+    if k8s_path is not None:
+        paths.append(("k8s", k8s_path))
+
+    for policy, path in paths:
         recs = pick_latest_records(path, policy)
         jobs = build_records(recs, durations, e_ref, c_ref)
         per_job_df = export_per_job(jobs, policy, output_dir / policy)
@@ -413,6 +420,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Aggregate Kubernetes replay decision traces.")
     parser.add_argument("--het", type=Path, required=True, help="Path to hetpolicy decisions.jsonl")
     parser.add_argument("--carbonscaler", type=Path, required=True, help="Path to carbonscaler decisions.jsonl")
+    parser.add_argument("--k8s", type=Path, default=None, help="Path to k8s decisions.jsonl (optional baseline)")
     parser.add_argument("--workloads", type=Path, default=Path("kubenergysched/config/workloads.csv"))
     parser.add_argument("--output", type=Path, default=Path("kubenergysched/results_k8s"))
     parser.add_argument("--eref", type=float, default=DEFAULT_E_REF)
@@ -423,6 +431,7 @@ def main() -> None:
     run(
         het_path=args.het,
         carb_path=args.carbonscaler,
+        k8s_path=args.k8s,
         output_dir=args.output,
         workloads_path=args.workloads,
         e_ref=args.eref,
