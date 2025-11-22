@@ -7,7 +7,7 @@ nodes:
         kind: InitConfiguration
         nodeRegistration:
           kubeletExtraArgs:
-            system-reserved: cpu=200m,memory=512Mi
+            system-reserved: cpu=600m,memory=512Mi
     labels:
       site: B
   - role: worker

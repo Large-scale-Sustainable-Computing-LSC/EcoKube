@@ -44,12 +44,22 @@ EcoKube is the sustainability-aware scheduling framework for Heterogeneous RIs. 
 - **4. Launch the analysis notebook** – Open `analysis/jupyter/output_capture.ipynb` (or `final_analysis.executed.ipynb`) in Jupyter, run all cells, and review the generated tables, plots, and evaluation metrics.
 - **5. Compare policies** – The notebook materialises the carbon and timeliness metrics mandated by the thesis (CFP, SCI, makespan, latency, scheduler overhead, throughput, average energy per job) so both pathways can be contrasted consistently.
 
+**If we want the convenient `hetsched` key to execute commands:**
+```
+echo 'export PATH="$PATH:/home/goncalo/KubeEnergyScheduler/k8s/scripts"' >> ~/.bashrc
+source ~/.bashrc
+
+hetsched() {
+  /home/goncalo/KubeEnergyScheduler/k8s/scripts/cluster.sh "$@"
+}
+```
+
 ### Kubernetes replay quick start
 The replay track mirrors the simulator while exercising the live HetPolicy and CarbonScaler controllers.
 
-1. **Create the Kind cluster** (multi-node, labelled): `kind create cluster --name themis --config k8s/kind/multi-node.yaml`.
-2. **Load fresh controller/replayer images**: `kind load docker-image --name themis goncaloferreirauva/ci-aware-controller:<tag>` and `goncaloferreirauva/workload-replayer:<tag>`.
-3. **Install the Helm stack** (HetPolicy): `./k8s/scripts/cluster.sh helm-up`. The controller honours `CIW_NODE_CAP` (default `100`) to mimic the simulator’s node limit; override it via `kubectl -n workloads set env deploy/ci-aware-controller CIW_NODE_CAP=<cap>`.
+1. **Create the Kind cluster** (multi-node, labelled): `kind create cluster --name hetsched --config k8s/kind/multi-node.yaml`.
+2. **Load fresh controller/replayer images**: `kind load docker-image --name hetsched goncaloferreirauva/ci-aware-controller:latest` and `goncaloferreirauva/workload-replayer:latest`.
+3. **Install the Helm stack** (EcoKube): `./k8s/scripts/cluster.sh helm-up`. The controller honours `CIW_NODE_CAP` (default `100`) to mimic the simulator’s node limit; override it via `kubectl -n workloads set env deploy/ci-aware-controller CIW_NODE_CAP=<cap>`. Submit batches with `./k8s/scripts/cluster.sh replay` and watch their `Job` objects with `./k8s/scripts/cluster.sh jobs` (pods via `status`).
 4. **Export HetPolicy decisions**: `RESULT_DIR=$PWD/ecokube/results_k8s/hetpolicy ./k8s/scripts/cluster.sh fetch`.
 5. **Switch to CarbonScaler**: `kubectl -n workloads set env deploy/ci-aware-controller SCHEDULER_POLICY=carbonscaler` and rerun `helm-up`.
 6. **Export CarbonScaler decisions**: `RESULT_DIR=$PWD/ecokube/results_k8s/carbonscaler ./k8s/scripts/cluster.sh fetch`.
@@ -91,9 +101,9 @@ The Kubernetes replay track mirrors the simulator while exercising real scheduli
 1. **Build container images** – Push updated controller, replayer, and metrics-agent images (`ecokube/controller`, `ecokube/workloads`, `k8s/images/ciw-metrics-agent`).
 2. **Bootstrap services** – `./k8s/scripts/cluster.sh bootstrap` prepares the namespace, refreshes ConfigMaps (`nodes.csv`, `workloads.csv`, `sites.json`), and deploys the CI-aware controller with HetPolicy enabled by default.
 3. **Replay the workloads** – `./k8s/scripts/cluster.sh replay` submits the batch via the workload replayer. Each Job includes an in-pod Prometheus metrics agent (port `9101`) sharing the process namespace so the exporter sees the workload’s processes.
-4. **Collect traces** – `./k8s/scripts/cluster.sh fetch [output]` copies `/var/log/ciw/decisions.jsonl` into `ecokube/results_latest/decisions.jsonl` (or a custom path) ready for the notebooks.
+4. **Collect traces** – `./k8s/scripts/cluster.sh fetch [output]` copies `/var/log/ciw/decisions.jsonl` into `ecokube/results_latest/decisions.jsonl` (or a custom path) ready for the notebooks. When using the Helm deployment, set `KES_CONTROLLER_DEPLOYMENT=ci-aware-controller` (and `KES_TRACE_CONTAINER=ctrl` if there is no dedicated `tailer` container) before running `fetch` so the script execs the correct pod.
 
-Additional commands include `status` (pod overview), `logs` (follow the controller deployment), `reset` (tear down namespace + cluster roles), and `helm-{up,down}` to manage the optional Helm stack under `k8s/helm`.
+Additional commands include `status` (pod overview), `jobs` (list replay `Job` objects), `logs` (follow the controller deployment), `reset` (tear down namespace + cluster roles), and `helm-{up,down}` to manage the optional Helm stack under `k8s/helm`.
 
 ### Policies and deferral knobs
 - Toggle policies by setting `SCHEDULER_POLICY` (`hetpolicy` or `carbonscaler`) on the controller deployment (`kubectl -n workloads set env deploy/ciw-controller SCHEDULER_POLICY=carbonscaler`).

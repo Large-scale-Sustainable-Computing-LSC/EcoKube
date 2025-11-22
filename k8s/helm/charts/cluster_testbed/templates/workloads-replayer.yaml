@@ -61,4 +61,4 @@ spec:
         - name: data
           configMap:
             name: workloads-csv
-      ttlSecondsAfterFinished: 60
+      ttlSecondsAfterFinished: 0
