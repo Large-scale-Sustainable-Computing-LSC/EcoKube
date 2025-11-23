@@ -1,34 +1,13 @@
-apiVersion: v1
-kind: ServiceAccount
-metadata: { name: replayer, namespace: workloads }
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: Role
-metadata: { name: job-writer, namespace: workloads }
-rules:
-  - apiGroups: ["batch"]
-    resources: ["jobs"]
-    verbs: ["create","get","list"]
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: RoleBinding
-metadata: { name: job-writer, namespace: workloads }
-roleRef: { apiGroup: rbac.authorization.k8s.io, kind: Role, name: job-writer }
-subjects:
-  - kind: ServiceAccount
-    name: replayer
-    namespace: workloads
----
 apiVersion: batch/v1
 kind: Job
 metadata:
   name: workloads-replayer
   namespace: workloads
-  labels: { ciw/eligible: "true" }
+  labels: {ciw/eligible: "true"}
 spec:
   ttlSecondsAfterFinished: 60
   template:
-    metadata: { labels: { ciw/eligible: "true" } }
+    metadata: {labels: {ciw/eligible: "true"}}
     spec:
       serviceAccountName: replayer
       restartPolicy: Never
@@ -46,13 +25,13 @@ spec:
             - name: PROM_SIDECAR_IMAGE
               value: "goncaloferreirauva/ciw-metrics-agent:latest"
             - name: SCHEDULER_LABEL
-              value: "hetpolicy"
+              value: !!null "null"
             - name: DEFAULT_MAX_DEFER_FRACTION
               value: "0.25"
             - name: SCHEDULER_NAME
               value: "ci-aware"
           volumeMounts:
-            - { name: data, mountPath: /data }
+            - {name: data, mountPath: /data}
       volumes:
         - name: data
-          configMap: { name: workloads-csv }
+          configMap: {name: workloads-csv}
