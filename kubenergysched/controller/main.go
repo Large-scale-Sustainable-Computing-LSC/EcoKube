@@ -19,7 +19,7 @@ import (
 	"time"
 
 	"github.com/g-uva/EcoKube/kespolicy/carbonscaler"
-	"github.com/g-uva/EcoKube/kespolicy/hetpolicy"
+	"github.com/g-uva/EcoKube/kespolicy/ecokube"
 	core "github.com/g-uva/EcoKube/kubenergysched/pkg/core"
 	"github.com/g-uva/EcoKube/kubenergysched/pkg/engine"
 	"github.com/g-uva/EcoKube/kubenergysched/pkg/metrics"
@@ -118,7 +118,7 @@ func main() {
 	sitesPath := env("SITES_PATH", "/etc/ci-aware/sites.json")
 	runID := os.Getenv("TRACE_RUN_ID")
 	schedulerName := env("CIW_SCHEDULER_NAME", "ci-aware")
-	policyName := env("SCHEDULER_POLICY", "hetpolicy")
+	policyName := env("SCHEDULER_POLICY", "ecokube")
 	nodeCap := parseEnvInt("CIW_NODE_CAP", 0)
 
 	theta := types.Theta{
@@ -344,7 +344,7 @@ func (c *controller) schedulePod(ctx context.Context, pod *corev1.Pod) (time.Dur
 	}
 
 	effectiveSnap := snap
-	if c.scheduler.Name() != "hetpolicy" {
+	if c.scheduler.Name() != "ecokube" {
 		effectiveSnap = neutraliseSnapshot(snap)
 	}
 
@@ -911,20 +911,20 @@ func neutraliseSnapshot(snap *clusterSnapshot) *clusterSnapshot {
 
 func buildScheduler(policy string, deps engine.Deps) (scheduler, error) {
 	switch policyName := normalizePolicy(policy); policyName {
-	case "hetpolicy":
-		cfg := hetpolicy.DefaultConfig()
-		cfg.Alpha = parseEnvFloat("HETPOLICY_ALPHA", 0.72)
-		cfg.Beta = parseEnvFloat("HETPOLICY_BETA", 0.18)
-		cfg.Gamma = parseEnvFloat("HETPOLICY_GAMMA", 0.10)
-		cfg.Delta = parseEnvFloat("HETPOLICY_DELTA", cfg.Delta)
-		if v := parseEnvFloat("HETPOLICY_MAX_RUNTIME", cfg.MaxRuntime); v > 0 {
+	case "ecokube":
+		cfg := ecokube.DefaultConfig()
+		cfg.Alpha = parseEnvFloat("ECOKUBE_ALPHA", 0.72)
+		cfg.Beta = parseEnvFloat("ECOKUBE_BETA", 0.18)
+		cfg.Gamma = parseEnvFloat("ECOKUBE_GAMMA", 0.10)
+		cfg.Delta = parseEnvFloat("ECOKUBE_DELTA", cfg.Delta)
+		if v := parseEnvFloat("ECOKUBE_MAX_RUNTIME", cfg.MaxRuntime); v > 0 {
 			cfg.MaxRuntime = v
 		}
-		if v := parseEnvFloat("HETPOLICY_MAX_DATA_MOVEMENT", cfg.MaxDataMovement); v > 0 {
+		if v := parseEnvFloat("ECOKUBE_MAX_DATA_MOVEMENT", cfg.MaxDataMovement); v > 0 {
 			cfg.MaxDataMovement = v
 		}
 		cfg.Now = deps.Now
-		return newHetScheduler(cfg, deps), nil
+		return newEcoScheduler(cfg, deps), nil
 	case "carbonscaler":
 		lambda := parseEnvFloat("CARBONSCALER_LAMBDA", 0.55)
 		shift := parseEnvFloat("CARBONSCALER_SHIFT_FRACTION", 0.3)
@@ -941,8 +941,8 @@ func buildScheduler(policy string, deps engine.Deps) (scheduler, error) {
 
 func normalizePolicy(s string) string {
 	switch strings.ToLower(strings.TrimSpace(s)) {
-	case "", "het", "hetpolicy":
-		return "hetpolicy"
+	case "", "ecokube":
+		return "ecokube"
 	case "carbonscaler", "carbon", "carbon-scaler":
 		return "carbonscaler"
 	case "k8s", "kubernetes", "default", "default-scheduler":

@@ -374,7 +374,7 @@ def compute_pareto(df: pd.DataFrame, objectives: Tuple[str, str]) -> pd.DataFram
 
 
 def run(
-    het_path: Path | str,
+    ecokube_path: Path | str,
     carb_path: Path | str,
     output_dir: Path | str,
     k8s_path: Path | str | None = None,
@@ -383,7 +383,7 @@ def run(
     c_ref: float = DEFAULT_C_REF,
     figures_dir: Path | str | None = None,
 ) -> Dict[str, List[dict]]:
-    het_path = Path(het_path)
+    ecokube_path = Path(ecokube_path)
     carb_path = Path(carb_path)
     k8s_path = Path(k8s_path) if k8s_path is not None else None
     output_dir = Path(output_dir)
@@ -394,7 +394,7 @@ def run(
     summaries: Dict[str, Dict[str, float]] = {}
     combined_frames: List[pd.DataFrame] = []
 
-    paths = [("hetpolicy", het_path), ("carbonscaler", carb_path)]
+    paths = [("ecokube", ecokube_path), ("carbonscaler", carb_path)]
     if k8s_path is not None:
         paths.append(("k8s", k8s_path))
 
@@ -431,7 +431,7 @@ def run(
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Aggregate Kubernetes replay decision traces.")
-    parser.add_argument("--het", type=Path, required=True, help="Path to hetpolicy decisions.jsonl")
+    parser.add_argument("--ecokube", type=Path, required=True, help="Path to ecokube decisions.jsonl")
     parser.add_argument("--carbonscaler", type=Path, required=True, help="Path to carbonscaler decisions.jsonl")
     parser.add_argument("--k8s", type=Path, default=None, help="Path to k8s decisions.jsonl (optional baseline)")
     parser.add_argument("--workloads", type=Path, default=Path("kubenergysched/config/workloads.csv"))
@@ -447,7 +447,7 @@ def main() -> None:
     args = parser.parse_args()
 
     run(
-        het_path=args.het,
+        ecokube_path=args.ecokube,
         carb_path=args.carbonscaler,
         k8s_path=args.k8s,
         output_dir=args.output,

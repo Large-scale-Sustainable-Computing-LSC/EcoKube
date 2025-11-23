@@ -10,6 +10,8 @@ csv_exports/
 **/powertrace.csv
 logs/
 
+__pycache__/
+
 analysis/figures/**/*.png
 analysis/figures/**/*.svg
 analysis/k8s_results/**/*.csv

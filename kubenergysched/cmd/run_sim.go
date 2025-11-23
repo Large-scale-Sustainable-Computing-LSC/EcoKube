@@ -16,7 +16,7 @@ import (
 	"time"
 
 	"github.com/g-uva/EcoKube/kespolicy/carbonscaler"
-	"github.com/g-uva/EcoKube/kespolicy/hetpolicy"
+	"github.com/g-uva/EcoKube/kespolicy/ecokube"
 	"github.com/g-uva/EcoKube/kespolicy/k8sched"
 	"github.com/g-uva/EcoKube/kespolicy/keids"
 	"github.com/g-uva/EcoKube/kespolicy/topsis"
@@ -56,7 +56,7 @@ type SummaryRow struct {
 	Rep               int     `json:"rep"`
 }
 
-type hetWeightSet struct {
+type ecoWeightSet struct {
 	Alpha float64
 	Beta  float64
 	Gamma float64
@@ -102,10 +102,10 @@ func main() {
 	flag.Float64Var(&alphaMass, "alpha-mass", 1.0, "adaptive carbon weight multiplier for big jobs (0=off)")
 	flag.IntVar(&lookaheadMin, "lookahead-min", 0, "look-ahead window in minutes (0=off)")
 	flag.StringVar(&tracePath, "trace-jsonl", "", "append JSON decision traces to this file (use 'auto' for outdir/decisions.jsonl)")
-	var hetModesFlag string
-	flag.StringVar(&hetModesFlag, "het-modes", "het-weighted-sum", "comma-separated hetero policy modes (weighted-sum, epsilon-constraint, greedy-normalised)")
-	var hetWeightsFlag string
-	flag.StringVar(&hetWeightsFlag, "het-weights", "", "comma-separated alpha:beta:gamma sets for hetpolicy (e.g. '0.6:0.3:0.1'); leave empty or 'auto' to calibrate per CI weight")
+	var ecoModesFlag string
+	flag.StringVar(&ecoModesFlag, "ecokube-modes", "het-weighted-sum", "comma-separated hetero policy modes (weighted-sum, epsilon-constraint, greedy-normalised)")
+	var ecoWeightsFlag string
+	flag.StringVar(&ecoWeightsFlag, "ecokube-weights", "", "comma-separated alpha:beta:gamma sets for ecokube (e.g. '0.6:0.3:0.1'); leave empty or 'auto' to calibrate per CI weight")
 	flag.Float64Var(&warmupMin, "warmup-min", 0, "warm-up window in minutes excluded from metrics (simulation only)")
 	flag.StringVar(&thetaPath, "theta-yaml", "", "optional Theta YAML to align simulator parameters with the Kubernetes controller")
 	flag.Int64Var(&arrivalSeed, "arrival-seed", 1337, "seed for synthetic arrival schedules")
@@ -140,12 +140,12 @@ func main() {
 	ciWeights := parseFloatSlice(ciWeightsFlag)
 	batchSizes := parseIntSlice(batchSizesFlag)
 	overrideDurations := parseDurationSliceSeconds(durationsFlag)
-	hetModes := parseHetModes(hetModesFlag)
-	if len(hetModes) > 1 {
-		log.Printf("het-modes: limiting to first mode %q for deterministic comparison", hetModes[0])
-		hetModes = hetModes[:1]
+	ecoModes := parseEcoModes(ecoModesFlag)
+	if len(ecoModes) > 1 {
+		log.Printf("ecokube-modes: limiting to first mode %q for deterministic comparison", ecoModes[0])
+		ecoModes = ecoModes[:1]
 	}
-	hetWeightSets := parseHetWeightSets(hetWeightsFlag)
+	ecoWeightSets := parseEcoWeightSets(ecoWeightsFlag)
 
 	// ---- Load workloads once and apply duration knobs ----
 	workloads := loader.LoadWorkloadsFromCSV(wlCSV)
@@ -424,12 +424,12 @@ func main() {
 						},
 					}
 
-					for _, mode := range hetModes {
+					for _, mode := range ecoModes {
 						mode := mode
-						weights := hetWeightSets
+						weights := ecoWeightSets
 						if len(weights) == 0 {
-							alpha, beta, gamma := calibrateHetWeights(ciW)
-							weights = []hetWeightSet{{
+							alpha, beta, gamma := calibrateEcoWeights(ciW)
+							weights = []ecoWeightSet{{
 								Alpha: alpha,
 								Beta:  beta,
 								Gamma: gamma,
@@ -438,9 +438,9 @@ func main() {
 						}
 						for _, weightCfg := range weights {
 							weightCfg := weightCfg
-							policyID := "hetpolicy"
-							if len(hetWeightSets) > 0 {
-								policyID = formatHetPolicyID(mode, weightCfg.Label)
+							policyID := "ecokube"
+							if len(ecoWeightSets) > 0 {
+								policyID = formatEcoKubeID(mode, weightCfg.Label)
 							}
 							specs = append(specs, struct {
 								name string
@@ -453,12 +453,12 @@ func main() {
 									loader.AttachSites(nodes, sites)
 
 									sim := &core.BaseSim{}
-									cfg := hetpolicy.DefaultConfig()
+									cfg := ecokube.DefaultConfig()
 									cfg.Delta = 0.0
 									cfg.Alpha = weightCfg.Alpha
 									cfg.Beta = weightCfg.Beta
 									cfg.Gamma = weightCfg.Gamma
-									pol := &hetpolicy.Policy{
+									pol := &ecokube.Policy{
 										Mode:         mode,
 										Cfg:          cfg,
 										OverrideName: policyID,
@@ -585,15 +585,15 @@ func parseStringSlice(s string) []string {
 	return out
 }
 
-func parseHetModes(raw string) []hetpolicy.Mode {
+func parseEcoModes(raw string) []ecokube.Mode {
 	tokens := parseStringSlice(raw)
 	if len(tokens) == 0 {
-		return []hetpolicy.Mode{hetpolicy.ModeWeightedSum}
+		return []ecokube.Mode{ecokube.ModeWeightedSum}
 	}
-	seen := map[hetpolicy.Mode]struct{}{}
-	modes := make([]hetpolicy.Mode, 0, len(tokens))
+	seen := map[ecokube.Mode]struct{}{}
+	modes := make([]ecokube.Mode, 0, len(tokens))
 	for _, token := range tokens {
-		if mode, ok := resolveHetMode(token); ok {
+		if mode, ok := resolveEcoMode(token); ok {
 			if _, exists := seen[mode]; !exists {
 				seen[mode] = struct{}{}
 				modes = append(modes, mode)
@@ -603,18 +603,18 @@ func parseHetModes(raw string) []hetpolicy.Mode {
 		}
 	}
 	if len(modes) == 0 {
-		return []hetpolicy.Mode{hetpolicy.ModeWeightedSum}
+		return []ecokube.Mode{ecokube.ModeWeightedSum}
 	}
 	return modes
 }
 
-func parseHetWeightSets(raw string) []hetWeightSet {
+func parseEcoWeightSets(raw string) []ecoWeightSet {
 	raw = strings.TrimSpace(raw)
 	if raw == "" || strings.EqualFold(raw, "auto") {
 		return nil
 	}
 	tokens := strings.Split(raw, ",")
-	sets := make([]hetWeightSet, 0, len(tokens))
+	sets := make([]ecoWeightSet, 0, len(tokens))
 	for _, token := range tokens {
 		token = strings.TrimSpace(token)
 		if token == "" {
@@ -622,14 +622,14 @@ func parseHetWeightSets(raw string) []hetWeightSet {
 		}
 		parts := strings.Split(token, ":")
 		if len(parts) != 3 {
-			log.Printf("het-weights: expected alpha:beta:gamma, got %q", token)
+			log.Printf("ecokube-weights: expected alpha:beta:gamma, got %q", token)
 			continue
 		}
 		vals := make([]float64, 0, 3)
 		for _, part := range parts {
 			v, err := strconv.ParseFloat(strings.TrimSpace(part), 64)
 			if err != nil {
-				log.Printf("het-weights: ignoring %q (%v)", token, err)
+				log.Printf("ecokube-weights: ignoring %q (%v)", token, err)
 				vals = nil
 				break
 			}
@@ -640,13 +640,13 @@ func parseHetWeightSets(raw string) []hetWeightSet {
 		}
 		sum := vals[0] + vals[1] + vals[2]
 		if sum <= 0 {
-			log.Printf("het-weights: ignoring %q (non-positive sum)", token)
+			log.Printf("ecokube-weights: ignoring %q (non-positive sum)", token)
 			continue
 		}
 		alpha := vals[0] / sum
 		beta := vals[1] / sum
 		gamma := vals[2] / sum
-		sets = append(sets, hetWeightSet{
+		sets = append(sets, ecoWeightSet{
 			Alpha: alpha,
 			Beta:  beta,
 			Gamma: gamma,
@@ -667,22 +667,22 @@ func compactFloat(v float64) string {
 	return s
 }
 
-func formatHetPolicyID(mode hetpolicy.Mode, label string) string {
+func formatEcoKubeID(mode ecokube.Mode, label string) string {
 	modeSafe := strings.ReplaceAll(string(mode), "-", "_")
 	if label != "" {
-		return fmt.Sprintf("hetpolicy_%s_%s", modeSafe, label)
+		return fmt.Sprintf("ecokube_%s_%s", modeSafe, label)
 	}
-	return fmt.Sprintf("hetpolicy_%s", modeSafe)
+	return fmt.Sprintf("ecokube_%s", modeSafe)
 }
 
-func resolveHetMode(token string) (hetpolicy.Mode, bool) {
+func resolveEcoMode(token string) (ecokube.Mode, bool) {
 	switch strings.ToLower(token) {
-	case string(hetpolicy.ModeWeightedSum), "weighted-sum":
-		return hetpolicy.ModeWeightedSum, true
-	case string(hetpolicy.ModeEpsilonConstraint), "epsilon-constraint":
-		return hetpolicy.ModeEpsilonConstraint, true
-	case string(hetpolicy.ModeGreedyNormalised), "het-greedy-normalized", "greedy-normalised", "greedy-normalized":
-		return hetpolicy.ModeGreedyNormalised, true
+	case string(ecokube.ModeWeightedSum), "weighted-sum":
+		return ecokube.ModeWeightedSum, true
+	case string(ecokube.ModeEpsilonConstraint), "epsilon-constraint":
+		return ecokube.ModeEpsilonConstraint, true
+	case string(ecokube.ModeGreedyNormalised), "het-greedy-normalized", "greedy-normalised", "greedy-normalized":
+		return ecokube.ModeGreedyNormalised, true
 	default:
 		return "", false
 	}
@@ -693,8 +693,8 @@ func carbonScalerLambda(ciWeight float64) float64 {
 	return clampFloat(0.15+0.65*raw, 0, 0.85)
 }
 
-func calibrateHetWeights(ciWeight float64) (float64, float64, float64) {
-	// Bias HetPolicy toward heterogeneity-aware runtime while keeping a carbon guard.
+func calibrateEcoWeights(ciWeight float64) (float64, float64, float64) {
+	// Bias EcoKube toward heterogeneity-aware runtime while keeping a carbon guard.
 	carbon := clampFloat(0.25+0.05*(0.4-ciWeight), 0.22, 0.30)
 	timeW := 0.40
 	energyW := 1 - carbon - timeW

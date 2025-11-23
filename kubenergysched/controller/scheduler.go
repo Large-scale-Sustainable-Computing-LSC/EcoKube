@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/g-uva/EcoKube/kespolicy/carbonscaler"
-	"github.com/g-uva/EcoKube/kespolicy/hetpolicy"
+	"github.com/g-uva/EcoKube/kespolicy/ecokube"
 	"github.com/g-uva/EcoKube/kubenergysched/pkg/core"
 	"github.com/g-uva/EcoKube/kubenergysched/pkg/engine"
 	"github.com/g-uva/EcoKube/kubenergysched/pkg/metrics"
@@ -78,21 +78,21 @@ func jobToCore(job types.Job) core.Job {
 	}
 }
 
-type hetScheduler struct {
-	policy *hetpolicy.Policy
+type ecoScheduler struct {
+	policy *ecokube.Policy
 	deps   engine.Deps
 }
 
-func newHetScheduler(cfg hetpolicy.Config, deps engine.Deps) scheduler {
-	pol := &hetpolicy.Policy{Mode: hetpolicy.ModeWeightedSum, Cfg: cfg, OverrideName: "hetpolicy"}
-	return &hetScheduler{policy: pol, deps: deps}
+func newEcoScheduler(cfg ecokube.Config, deps engine.Deps) scheduler {
+	pol := &ecokube.Policy{Mode: ecokube.ModeWeightedSum, Cfg: cfg, OverrideName: "ecokube"}
+	return &ecoScheduler{policy: pol, deps: deps}
 }
 
-func (h *hetScheduler) Name() string { return "hetpolicy" }
+func (h *ecoScheduler) Name() string { return "ecokube" }
 
-func (h *hetScheduler) Schedule(ctx context.Context, job types.Job, snap *clusterSnapshot) (types.Decision, types.DecisionTrace, time.Duration, error) {
+func (h *ecoScheduler) Schedule(ctx context.Context, job types.Job, snap *clusterSnapshot) (types.Decision, types.DecisionTrace, time.Duration, error) {
 	if snap == nil || len(snap.Views) == 0 {
-		return types.Decision{}, types.DecisionTrace{JobID: job.ID, Fallback: true, RejectReason: "no_nodes"}, 0, fmt.Errorf("hetpolicy: no nodes available")
+		return types.Decision{}, types.DecisionTrace{JobID: job.ID, Fallback: true, RejectReason: "no_nodes"}, 0, fmt.Errorf("ecokube: no nodes available")
 	}
 	scores, err := h.policy.Score(ctx, jobToCore(job), snap.SimNodes)
 	if err != nil {
@@ -100,7 +100,7 @@ func (h *hetScheduler) Schedule(ctx context.Context, job types.Job, snap *cluste
 	}
 	id, ok := core.ArgMin(scores)
 	if !ok {
-		return types.Decision{}, types.DecisionTrace{JobID: job.ID, Fallback: true, RejectReason: "no_candidate"}, 0, fmt.Errorf("hetpolicy: no candidate")
+		return types.Decision{}, types.DecisionTrace{JobID: job.ID, Fallback: true, RejectReason: "no_candidate"}, 0, fmt.Errorf("ecokube: no candidate")
 	}
 	engScores, traces := engine.ScoreNodes(ctx, job, snap.NodeSnapshots, h.deps)
 	_ = engScores

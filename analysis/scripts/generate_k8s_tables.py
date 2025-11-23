@@ -17,11 +17,22 @@ import numpy as np
 import pandas as pd
 
 POLICY_LABELS = {
-    "hetpolicy": "HetPolicy",
+    "ecokube": "EcoKube",
     "carbonscaler": "CarbonScaler",
+    "hetsched": "HetSched",
 }
 
 DEFAULT_BATCHES = (200, 500, 1000)
+
+LEGACY_POLICY_MAP = {
+    "hetpolicy": "ecokube",
+    "het-policy": "ecokube",
+    "het_policy": "ecokube",
+    "themis": "hetsched",
+    "themis_base": "hetsched",
+    "themisbase": "hetsched",
+    "hetschedframework": "hetsched",
+}
 
 
 @dataclass
@@ -35,6 +46,9 @@ def _load_summary(path: Path) -> pd.DataFrame:
         raise FileNotFoundError(path)
     df = pd.read_csv(path)
     df.columns = [c.strip().lower() for c in df.columns]
+    if "policy" not in df.columns:
+        raise ValueError(f"'policy' column missing in {path}")
+    df["policy"] = df["policy"].str.lower().replace(LEGACY_POLICY_MAP)
     df.rename(
         columns={
             "policy": "policy",

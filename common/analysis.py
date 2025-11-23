@@ -43,21 +43,30 @@ POLICY_ALIASES = {
     "k8s_default": "k8s-default",
     "default": "k8s-default",
     "baseline": "k8s-default",
-    "themis_base": "themis-base",
-    "het": "hetpolicy",
+    "hetpolicy": "ecokube",
+    "het-policy": "ecokube",
+    "het_policy": "ecokube",
+    "eco-kube": "ecokube",
+    "eco_kube": "ecokube",
+    "hetsched": "HetSched",
+    "hetschedframework": "HetSched",
+    "hetsched_framework": "HetSched",
+    "themis": "HetSched",
+    "themis_base": "HetSched",
+    "themisbase": "HetSched",
 }
 
 # Policies appear in this order when building tables/figures; the baseline is
 # still surfaced explicitly via strongest_baseline(), but the ordering helps
 # keep comparisons consistent.  Policies not listed are appended alphabetically,
-# with hetpolicy forced to the end in accordance with the brief.
+# with ecokube forced to the end in accordance with the brief.
 POLICY_ORDER = [
     "k8s-default",
     "carbonscaler",
     "keids",
     "topsis",
-    "themis-base",
-    "hetpolicy",
+    "HetSched",
+    "ecokube",
 ]
 
 
@@ -99,8 +108,8 @@ def _canonical_policy_sort_key(policy: str) -> tuple[int, str]:
         idx = POLICY_ORDER.index(policy)
     except ValueError:
         idx = len(POLICY_ORDER)
-    # hetpolicy must always trail any additional policies.
-    if policy == "hetpolicy":
+    # ecokube must always trail any additional policies.
+    if policy == "ecokube":
         idx = max(idx, len(POLICY_ORDER))
     return (idx, policy)
 
@@ -659,16 +668,16 @@ def summarise(
     if not policies:
         return pd.DataFrame(columns=["metric"])
     ordered_policies: list[str] = []
-    if baseline_policy in policies and baseline_policy != "hetpolicy":
+    if baseline_policy in policies and baseline_policy != "ecokube":
         ordered_policies.append(baseline_policy)
     middle = [
         policy
         for policy in policies
-        if policy not in {baseline_policy, "hetpolicy"}
+        if policy not in {baseline_policy, "ecokube"}
     ]
     ordered_policies.extend(middle)
-    if "hetpolicy" in policies:
-        ordered_policies.append("hetpolicy")
+    if "ecokube" in policies:
+        ordered_policies.append("ecokube")
     # Include any stragglers (e.g., baseline not in policies)
     for policy in policies:
         if policy not in ordered_policies:

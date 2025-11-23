@@ -1,4 +1,4 @@
-package hetpolicy
+package ecokube
 
 import (
 	"context"
@@ -17,9 +17,9 @@ import (
 type Mode string
 
 const (
-	ModeWeightedSum       Mode = "het-weighted-sum"
-	ModeEpsilonConstraint Mode = "het-epsilon-constraint"
-	ModeGreedyNormalised  Mode = "het-greedy-normalised"
+	ModeWeightedSum       Mode = "eco-weighted-sum"
+	ModeEpsilonConstraint Mode = "eco-epsilon-constraint"
+	ModeGreedyNormalised  Mode = "eco-greedy-normalised"
 )
 
 const (
@@ -104,7 +104,7 @@ func (p *Policy) Score(ctx context.Context, job core.Job, nodes []core.Simulated
 	case ModeEpsilonConstraint:
 		return p.scoreEpsilon(items), nil
 	default:
-		return nil, fmt.Errorf("hetpolicy: unsupported mode %q", p.Mode)
+		return nil, fmt.Errorf("ecokube: unsupported mode %q", p.Mode)
 	}
 }
 
@@ -128,7 +128,7 @@ type candidateMetrics struct {
 
 func computeCandidateMetrics(job core.Job, nodes []core.SimulatedNode, now time.Time) ([]candidateMetrics, error) {
 	if len(nodes) == 0 {
-		return nil, errors.New("hetpolicy: no candidate nodes provided")
+		return nil, errors.New("ecokube: no candidate nodes provided")
 	}
 
 	work := workloadFromJob(job)

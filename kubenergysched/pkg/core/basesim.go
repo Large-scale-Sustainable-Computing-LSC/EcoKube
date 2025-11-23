@@ -26,7 +26,7 @@ type BaseSim struct {
 	LogsBuf []LogEntry
 
 	Select SelectFunc // optional: if set, used first
-	Policy Policy     // generic policy (themis_base, carbonscaler, etc.)
+	Policy Policy     // generic policy (hetsched, carbonscaler, etc.)
 	CICalc func(n *SimulatedNode, w Workload, at time.Time) float64
 	Tracer DecisionTracer
 }

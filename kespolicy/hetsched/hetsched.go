@@ -1,4 +1,4 @@
-package themisbase
+package hetsched
 
 import (
 	"context"
@@ -9,21 +9,21 @@ import (
 	"github.com/g-uva/EcoKube/kubenergysched/pkg/metrics"
 )
 
-// Weights mirrors the original THEMIS axes: carbon, waiting time, utilisation.
+// Weights mirrors the original HETSCHED axes: carbon, waiting time, utilisation.
 type Weights struct {
 	Carbon float64
 	Wait   float64
 	Util   float64
 }
 
-// Policy implements a lightly-parameterised baseline similar to the earlier THEMIS prototype.
+// Policy implements a lightly-parameterised baseline similar to the earlier HETSCHED prototype.
 type Policy struct {
 	W         Weights
 	AlphaMass float64
 	Lookahead time.Duration
 }
 
-func (p *Policy) Name() string { return "themis_base" }
+func (p *Policy) Name() string { return "hetsched" }
 
 func (p *Policy) Score(_ context.Context, j core.Job, nodes []core.SimulatedNode) (core.Scores, error) {
 	if len(nodes) == 0 {

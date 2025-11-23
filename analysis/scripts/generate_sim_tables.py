@@ -19,22 +19,34 @@ import numpy as np
 import pandas as pd
 
 POLICY_LABELS = {
-    "hetpolicy": "HetPolicy",
-    "hetpolicy_het_weighted_sum_a0p85_b0p10_g0p05": "HetPolicy",
+    "ecokube": "EcoKube",
+    "ecokube_het_weighted_sum_a0p85_b0p10_g0p05": "EcoKube",
     "topsis": "TOPSIS",
     "keids": "KEIDS",
     "k8s": "Kubernetes base",
     "k8": "Kubernetes base",
+    "hetsched": "HetSched",
 }
 
 POLICY_PRIORITY = {
-    "hetpolicy": 0,
-    "hetpolicy_het_weighted_sum_a0p85_b0p10_g0p05": 0,
+    "ecokube": 0,
+    "ecokube_het_weighted_sum_a0p85_b0p10_g0p05": 0,
     "carbonscaler": 1,
     "topsis": 2,
     "keids": 3,
-    "k8": 4,
-    "k8s": 4,
+    "hetsched": 4,
+    "k8": 5,
+    "k8s": 5,
+}
+
+LEGACY_POLICY_MAP = {
+    "hetpolicy": "ecokube",
+    "het-policy": "ecokube",
+    "het_policy": "ecokube",
+    "themis": "hetsched",
+    "themis_base": "hetsched",
+    "themisbase": "hetsched",
+    "hetschedframework": "hetsched",
 }
 
 DEFAULT_BATCHES = (200, 500, 1000)
@@ -58,8 +70,9 @@ def _read_summary(path: Path, policies: Iterable[str]) -> pd.DataFrame:
     if not path.exists():
         raise FileNotFoundError(path)
     df = pd.read_csv(path)
-    df = df[df["policy"].str.lower().isin(policies)].copy()
     df["policy"] = df["policy"].str.lower()
+    df["policy"] = df["policy"].replace(LEGACY_POLICY_MAP)
+    df = df[df["policy"].isin(policies)].copy()
     return df
 
 
@@ -83,6 +96,7 @@ def _build_from_combined(
 ) -> TableResults:
     df = pd.read_csv(combined_path)
     df["policy"] = df["policy"].str.lower()
+    df["policy"] = df["policy"].replace(LEGACY_POLICY_MAP)
     df = df[df["policy"].isin(policies)].copy()
     df = df[df["batch_size"].isin(batches)]
     df = df[np.isclose(df["ci_weight"], ci_weight)]
@@ -152,7 +166,7 @@ def build_sim_tables(
     results_root: Path,
     ci_weight: float = DEFAULT_CI_WEIGHT,
     batches: Iterable[int] = DEFAULT_BATCHES,
-    policies: Iterable[str] = ("hetpolicy", "hetpolicy_het_weighted_sum_a0p85_b0p10_g0p05", "topsis", "keids", "k8s"),
+    policies: Iterable[str] = ("ecokube", "ecokube_het_weighted_sum_a0p85_b0p10_g0p05", "topsis", "keids", "hetsched", "k8s"),
     combined_summary: Path | None = None,
 ) -> TableResults:
     """Read simulator summary CSVs and return per-batch plus overall tables."""
@@ -302,7 +316,7 @@ def main() -> None:
     per_batch_table = tables.per_batch[per_batch_columns]
     per_batch_tex = _styled_table(
         per_batch_table,
-        caption="Simulation pathway: per-batch summary for HetPolicy, TOPSIS, KEIDS, and the Kubernetes baseline.",
+        caption="Simulation pathway: per-batch summary for EcoKube, TOPSIS, KEIDS, and the Kubernetes baseline.",
         label="tab:sim-per-batch",
         column_format="lcccccc",
         float_cols=["CI Weight", "Total CFP [gCO2e]", "Avg Wait [s]", "Makespan [s]"],

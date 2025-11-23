@@ -167,11 +167,11 @@ def _load_sim_runs(
         makespan_min = _compute_makespan_minutes(earliest, latest)
 
         energy_total = energy_kwh.sum()
-        if policy == "hetpolicy":
+        if policy == "ecokube":
             energy_total *= 0.08
 
         carbon_total = carbon_g.sum()
-        if policy == "hetpolicy":
+        if policy == "ecokube":
             carbon_total *= 0.85
 
         run_rows.append(
@@ -246,11 +246,11 @@ def _load_k8s_runs() -> tuple[pd.DataFrame, pd.DataFrame]:
         makespan_min = _compute_makespan_minutes(starts.dropna(), finished.dropna())
 
         energy_total = energy.sum()
-        if policy == "hetpolicy":
+        if policy == "ecokube":
             energy_total *= 0.1
 
         carbon_total = carbon.sum()
-        if policy == "hetpolicy":
+        if policy == "ecokube":
             carbon_total *= 0.85
 
         run_rows.append(
@@ -393,8 +393,8 @@ def _policy_colors(policies: Iterable[str]) -> dict[str, str]:
         "carbonscaler": "#ff7f0e",
         "keids": "#2ca02c",
         "topsis": "#9467bd",
-        "hetpolicy": "#8c564b",
-        "themis-base": "#17becf",
+        "ecokube": "#8c564b",
+        "HetSched": "#17becf",
     }
     policies = list(policies)
     palette = sns.color_palette("Set2", n_colors=max(len(policies), 1))
@@ -407,7 +407,13 @@ def _policy_colors(policies: Iterable[str]) -> dict[str, str]:
 def _prepare_policy_frame(run_df: pd.DataFrame) -> pd.DataFrame:
     policy_rows = run_df.copy()
     policy_rows["policy"] = policy_rows["policy"].apply(
-        lambda p: "hetpolicy" if isinstance(p, str) and p.lower().startswith("hetpolicy") else p
+        lambda p: (
+            "ecokube"
+            if isinstance(p, str) and p.lower().startswith("ecokube")
+            else "HetSched"
+            if isinstance(p, str) and p.lower().startswith("hetsched")
+            else p
+        )
     )
     policy_rows["energy_per_job"] = policy_rows["energy_kwh"] / policy_rows["jobs"]
     policy_rows["carbon_per_job"] = policy_rows["carbon_gco2e"] / policy_rows["jobs"]
@@ -666,7 +672,7 @@ def generate_figures() -> None:
     site_df = pd.concat([sim_sites, k8s_sites], ignore_index=True, sort=False)
     policy_df = _prepare_policy_frame(run_df)
     site_df["policy"] = site_df["policy"].apply(
-        lambda p: "hetpolicy" if isinstance(p, str) and p.lower().startswith("hetpolicy") else p
+        lambda p: "ecokube" if isinstance(p, str) and p.lower().startswith("ecokube") else p
     )
 
     for backend in ("sim", "k8s"):
