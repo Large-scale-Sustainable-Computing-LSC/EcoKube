@@ -23,6 +23,9 @@ except ImportError:  # pragma: no cover - optional dependency
 DEFAULT_E_REF = 10.0  # kWh
 DEFAULT_C_REF = 5.0   # kg
 
+REPO_ROOT = Path(__file__).resolve().parents[2]
+DEFAULT_FIGURES_DIR = REPO_ROOT / "analysis" / "figures" / "k8s"
+
 
 def _parse_time(value: str) -> datetime | None:
     if not value or value.startswith("0001-01-01"):
@@ -410,9 +413,8 @@ def run(
     if not pareto_df.empty:
         pareto_df.to_csv(summary_dir / "pareto.csv", index=False)
 
-    if figures_dir is None:
-        figures_dir = output_dir / "figures"
-    export_figures(summary_df, Path(figures_dir))
+    target_figures_dir = Path(figures_dir) if figures_dir is not None else DEFAULT_FIGURES_DIR
+    export_figures(summary_df, target_figures_dir)
 
     combined_df = pd.concat(combined_frames, ignore_index=True) if combined_frames else pd.DataFrame()
     if not combined_df.empty:
@@ -436,7 +438,12 @@ def main() -> None:
     parser.add_argument("--output", type=Path, default=Path("kubenergysched/results_k8s"))
     parser.add_argument("--eref", type=float, default=DEFAULT_E_REF)
     parser.add_argument("--cref", type=float, default=DEFAULT_C_REF)
-    parser.add_argument("--figures-dir", type=Path, default=None)
+    parser.add_argument(
+        "--figures-dir",
+        type=Path,
+        default=None,
+        help="Directory for PNG figures (default: analysis/figures/k8s)",
+    )
     args = parser.parse_args()
 
     run(

@@ -269,8 +269,8 @@ def main() -> None:
     parser.add_argument(
         "--combined-summary",
         type=Path,
-        default=Path("analysis/results/combined_summary.csv"),
-        help="Path to combined_summary.csv (if present, preferred over per-run summaries).",
+        default=None,
+        help="Optional combined_summary.csv path (preferred over per-run summaries when present).",
     )
     parser.add_argument("--out-dir", type=Path, default=Path("analysis/tables"), help="Directory for LaTeX files.")
     args = parser.parse_args()

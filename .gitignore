@@ -10,6 +10,13 @@ csv_exports/
 **/powertrace.csv
 logs/
 
+analysis/figures/**/*.png
+analysis/figures/**/*.svg
+analysis/k8s_results/**/*.csv
+analysis/k8s_results/**/*.json
+analysis/k8s_results/**/*.jsonl
+analysis/tables/**/*.tex
+
 # analysis/
 # jupyter/*
 # !**.ipynb

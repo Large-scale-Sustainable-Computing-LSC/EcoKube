@@ -8,7 +8,7 @@ This script produces four figures per backend (``sim`` and ``k8s``):
 3. Makespan bar chart with 95 % bootstrap confidence intervals.
 4. Site selection stacked bar chart showing allocation shares.
 
-Outputs are written to ``assets/{backend}_*.png``.
+Outputs are written to ``analysis/figures/{backend}/...``.
 """
 
 from __future__ import annotations
@@ -32,7 +32,7 @@ if str(REPO_ROOT) not in sys.path:
 from common.analysis import POLICY_ORDER, _normalise_policy, bootstrap_ci
 
 
-ASSETS_DIR = Path("assets")
+FIGURES_ROOT = REPO_ROOT / "analysis" / "figures"
 SIM_RESULTS_DIR = Path("kubenergysched/results_latest")
 K8S_RESULTS_DIR = Path("kubenergysched/results_k8s")
 NODES_CSV = Path("kubenergysched/config/nodes.csv")
@@ -669,8 +669,9 @@ def generate_figures() -> None:
         lambda p: "hetpolicy" if isinstance(p, str) and p.lower().startswith("hetpolicy") else p
     )
 
-    ASSETS_DIR.mkdir(parents=True, exist_ok=True)
     for backend in ("sim", "k8s"):
+        backend_dir = FIGURES_ROOT / backend
+        backend_dir.mkdir(parents=True, exist_ok=True)
         backend_policies = policy_df.loc[policy_df["backend"] == backend, "policy"].unique()
         colors = _policy_colors(backend_policies)
 
@@ -678,25 +679,25 @@ def generate_figures() -> None:
             policy_df,
             backend,
             colors,
-            ASSETS_DIR / f"{backend}_pareto_energy_vs_sci.png",
+            backend_dir / f"{backend}_pareto_energy_vs_sci.png",
         )
         _plot_latency_violin(
             policy_df,
             backend,
             colors,
-            ASSETS_DIR / f"{backend}_tail_latency_violin.png",
+            backend_dir / f"{backend}_tail_latency_violin.png",
         )
         _plot_makespan_bars(
             policy_df,
             backend,
             colors,
-            ASSETS_DIR / f"{backend}_makespan_bars.png",
+            backend_dir / f"{backend}_makespan_bars.png",
         )
         _plot_site_stacked(
             site_df,
             backend,
             colors,
-            ASSETS_DIR / f"{backend}_site_selection_stacked_bar.png",
+            backend_dir / f"{backend}_site_selection_stacked_bar.png",
         )
 
 

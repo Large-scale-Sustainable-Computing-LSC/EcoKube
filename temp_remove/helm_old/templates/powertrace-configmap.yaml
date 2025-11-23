@@ -1,9 +1,0 @@
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: powertrace-csv
-data:
-  powertrace.csv: |
-{{ .Files.Get "data/powertrace.csv" | indent 4 }}
-  key.json: |
-{{ .Files.Get "data/key.json" | indent 4 }}

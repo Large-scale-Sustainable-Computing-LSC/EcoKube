@@ -63,7 +63,7 @@ The replay track mirrors the simulator while exercising the live HetPolicy and C
 4. **Export HetPolicy decisions**: `RESULT_DIR=$PWD/ecokube/results_k8s/hetpolicy ./k8s/scripts/cluster.sh fetch`.
 5. **Switch to CarbonScaler**: `kubectl -n workloads set env deploy/ci-aware-controller SCHEDULER_POLICY=carbonscaler` and rerun `helm-up`.
 6. **Export CarbonScaler decisions**: `RESULT_DIR=$PWD/ecokube/results_k8s/carbonscaler ./k8s/scripts/cluster.sh fetch`.
-7. **Aggregate + plots**: `python analysis/scripts/aggregate_k8s.py --het ecokube/results_k8s/hetpolicy/decisions.jsonl --carbonscaler ecokube/results_k8s/carbonscaler/decisions.jsonl --output analysis/k8s_results --figures-dir analysis/figures/k8s`.
+7. **Aggregate + plots**: `python analysis/scripts/aggregate_k8s.py --het ecokube/results_k8s/hetpolicy/decisions.jsonl --carbonscaler ecokube/results_k8s/carbonscaler/decisions.jsonl --output analysis/k8s_results --figures-dir analysis/figures/k8s`. This writes CSV exports to `analysis/k8s_results/` and drops the PNGs in `analysis/figures/k8s/`.
 8. **Preview notebooks**: `analysis/jupyter/sim_analysis.ipynb` for the simulator, `analysis/jupyter/k8s_analysis.ipynb` for the replay.
 
 Outputs are mirrored to `analysis/k8s_results/` (CSV + PNG).
@@ -125,6 +125,6 @@ ecokube/
 ├─ analysis/jupyter/            # Thesis notebooks and helpers
 ├─ k8s/                         # Manifests and Helm assets
 ├─ kespolicy/                   # Policy prototypes
-├─ sim/                         # Power trace tooling
-└─ docs/, assets/, examples/    # Supporting material
+├─ analysis/figures/            # Generated figures (sim + k8s)
+└─ docs/, examples/             # Supporting material
 ```

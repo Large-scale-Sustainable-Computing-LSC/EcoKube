@@ -2,13 +2,10 @@
 .github
 .venv
 analysis/
-assets/
 kubenergysched/results/
 kubenergysched/results_k8s/
 kubenergysched/results_latest/
 kubenergysched/temp-commands.sh
 kubenergysched/tests/
-sim/
-temp_remove/
 *.ipynb
 *.log
