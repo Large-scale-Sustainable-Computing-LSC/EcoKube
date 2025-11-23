@@ -21,6 +21,7 @@ PROM_MEM_LIMIT = os.getenv("PROM_SIDECAR_MEMORY_LIMIT", "256Mi")
 PROM_INTERVAL = os.getenv("PROM_SCRAPE_INTERVAL", "15s")
 DEFAULT_MAX_DEFER_FRAC = float(os.getenv("DEFAULT_MAX_DEFER_FRACTION", "0"))
 SCHEDULER_LABEL = os.getenv("SCHEDULER_LABEL", "baseline")
+SKIP_GPU_JOBS = os.getenv("SKIP_GPU_JOBS", "false").lower() in {"1", "true", "yes", "on"}
 
 CANDIDATE_COLS = {
     "id": ["job_id", "jobid", "task_id", "taskid", "id"],
@@ -234,6 +235,11 @@ def main():
         count = 0
         prev_submit = None
         for row in reader:
+            if SKIP_GPU_JOBS:
+                rc = (row.get("resource_class") or "").strip().lower()
+                gpu_count = parse_float(row.get("gpu_count", "0"), 0.0)
+                if rc == "gpu" or gpu_count > 0:
+                    continue
             if count >= MAX_JOBS:
                 break
             submit_at = parse_ts(row.get("submit"))

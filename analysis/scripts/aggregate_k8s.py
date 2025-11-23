@@ -111,13 +111,24 @@ def build_records(rec_list: Iterable[dict],
                   c_ref: float) -> List[JobRecord]:
     results: List[JobRecord] = []
     for rec in rec_list:
-        job_id = rec.get("job_id")
-        if not job_id:
+        raw_id = rec.get("job_id")
+        if not raw_id:
             continue
+        job_id = str(raw_id)
         duration = durations.get(job_id)
+        token = job_id.split("-")[-1]
         if duration is None:
-            token = job_id.split("-")[-1]
-            duration = durations.get(token, 60.0)
+            duration = durations.get(token)
+            if duration is not None:
+                job_id = token
+        if duration is None:
+            trimmed = token.lstrip("0") or "0"
+            duration = durations.get(trimmed)
+            if duration is not None:
+                job_id = trimmed
+        if duration is None:
+            # Ignore traces we cannot map back to a workload row (e.g. helper pods).
+            continue
         queued = _parse_time(rec.get("queued_at"))
         started = _parse_time(rec.get("started_at"))
         ended = _parse_time(rec.get("ended_at"))

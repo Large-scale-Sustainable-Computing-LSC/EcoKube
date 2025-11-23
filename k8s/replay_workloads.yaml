@@ -3,11 +3,10 @@ kind: Job
 metadata:
   name: workloads-replayer
   namespace: workloads
-  labels: {ciw/eligible: "true"}
 spec:
   ttlSecondsAfterFinished: 60
   template:
-    metadata: {labels: {ciw/eligible: "true"}}
+    metadata: {}
     spec:
       serviceAccountName: replayer
       restartPolicy: Never
@@ -21,13 +20,17 @@ spec:
             - name: TARGET_SCHEDULER_NAME
               value: "ci-aware"
             - name: ENABLE_PROM_SIDECAR
-              value: "true"
+              value: "false"
             - name: PROM_SIDECAR_IMAGE
               value: "goncaloferreirauva/ciw-metrics-agent:latest"
             - name: SCHEDULER_LABEL
-              value: !!null "null"
+              value: "carbonscaler"
             - name: DEFAULT_MAX_DEFER_FRACTION
               value: "0.25"
+            - name: MAX_JOBS
+              value: "30"
+            - name: SKIP_GPU_JOBS
+              value: "true"
             - name: SCHEDULER_NAME
               value: "ci-aware"
           volumeMounts:
