@@ -656,26 +656,62 @@ def _plot_site_stacked(
     plt.close(fig)
 
 
-def generate_figures() -> None:
-    node_power, site_power, fallback_power = _load_node_power()
-    sim_runs, sim_sites = _load_sim_runs(node_power, site_power, fallback_power)
-    k8s_runs, k8s_sites = _load_k8s_runs()
-    k8s_default_runs, k8s_default_sites = _load_k8s_default_from_sim(
-        node_power, site_power, fallback_power
-    )
-    if not k8s_default_runs.empty:
-        k8s_runs = pd.concat([k8s_runs, k8s_default_runs], ignore_index=True)
-    if not k8s_default_sites.empty:
-        k8s_sites = pd.concat([k8s_sites, k8s_default_sites], ignore_index=True)
+def generate_figures(
+    backends: Iterable[str] | None = None,
+    exclude_policies: Iterable[str] | None = None,
+) -> None:
+    requested = tuple(dict.fromkeys(backends or ("sim", "k8s")))
+    if not requested:
+        requested = ("sim", "k8s")
+    # Normalise policy filter so callers can pass mixed casing once.
+    excluded = {
+        policy.strip().lower()
+        for policy in (exclude_policies or [])
+        if policy and policy.strip()
+    }
 
-    run_df = pd.concat([sim_runs, k8s_runs], ignore_index=True, sort=False)
-    site_df = pd.concat([sim_sites, k8s_sites], ignore_index=True, sort=False)
+    node_power, site_power, fallback_power = _load_node_power()
+    run_frames: list[pd.DataFrame] = []
+    site_frames: list[pd.DataFrame] = []
+
+    if "sim" in requested:
+        sim_runs, sim_sites = _load_sim_runs(node_power, site_power, fallback_power)
+        run_frames.append(sim_runs)
+        site_frames.append(sim_sites)
+
+    if "k8s" in requested:
+        k8s_runs, k8s_sites = _load_k8s_runs()
+        k8s_default_runs, k8s_default_sites = _load_k8s_default_from_sim(
+            node_power, site_power, fallback_power
+        )
+        if not k8s_default_runs.empty:
+            k8s_runs = pd.concat([k8s_runs, k8s_default_runs], ignore_index=True)
+        if not k8s_default_sites.empty:
+            k8s_sites = pd.concat([k8s_sites, k8s_default_sites], ignore_index=True)
+        run_frames.append(k8s_runs)
+        site_frames.append(k8s_sites)
+
+    if not run_frames:
+        run_df = pd.DataFrame(columns=["backend", "policy"])
+        site_df = pd.DataFrame(columns=["backend", "policy"])
+    else:
+        run_df = pd.concat(run_frames, ignore_index=True, sort=False)
+        site_df = pd.concat(site_frames, ignore_index=True, sort=False)
+
     policy_df = _prepare_policy_frame(run_df)
     site_df["policy"] = site_df["policy"].apply(
         lambda p: "ecokube" if isinstance(p, str) and p.lower().startswith("ecokube") else p
     )
 
-    for backend in ("sim", "k8s"):
+    if excluded:
+        policy_df = policy_df[
+            ~policy_df["policy"].fillna("").str.lower().isin(excluded)
+        ]
+        site_df = site_df[
+            ~site_df["policy"].fillna("").str.lower().isin(excluded)
+        ]
+
+    for backend in requested:
         backend_dir = FIGURES_ROOT / backend
         backend_dir.mkdir(parents=True, exist_ok=True)
         backend_policies = policy_df.loc[policy_df["backend"] == backend, "policy"].unique()
@@ -714,8 +750,29 @@ def main() -> None:
         action="store_true",
         help="Suppress console output (currently unused, kept for parity).",
     )
-    parser.parse_args()
-    generate_figures()
+    parser.add_argument(
+        "--backend",
+        dest="backends",
+        action="append",
+        choices=("sim", "k8s"),
+        help="Restrict figure generation to one or more backends (default: both).",
+    )
+    parser.add_argument(
+        "--exclude-policy",
+        dest="exclude_policies",
+        action="append",
+        default=[],
+        help="Policy name to omit entirely from the figures (case-insensitive).",
+    )
+    args = parser.parse_args()
+    backends = None
+    if args.backends:
+        ordered = []
+        for backend in args.backends:
+            if backend not in ordered:
+                ordered.append(backend)
+        backends = ordered
+    generate_figures(backends=backends, exclude_policies=args.exclude_policies)
 
 
 if __name__ == "__main__":

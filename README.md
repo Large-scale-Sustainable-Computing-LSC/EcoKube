@@ -67,7 +67,7 @@ The replay track mirrors the simulator while exercising the live EcoKube and Car
 8. **Preview notebooks**: `analysis/jupyter/sim_analysis.ipynb` for the simulator, `analysis/jupyter/k8s_analysis.ipynb` for the replay.
 
 Outputs are mirrored to `analysis/k8s_results/` (CSV + PNG). All generated artefacts now land under the analysis tree:
-- `analysis/figures/sim` and `analysis/figures/k8s` collect every simulator/replay PNG (ignored via `.gitignore`).
+- `analysis/figures/sim` and `analysis/figures/k8s` collect every simulator/replay PNG (Pareto, tail-latency violin, makespan bars; ignored via `.gitignore`).
 - `analysis/k8s_results` stores replay CSV exports (`batch_*/summary.csv` plus `per_job.csv`).
 - `analysis/tables` centralises the LaTeX fragments emitted by `generate_{sim,k8s}_tables.py`.
 

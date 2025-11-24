@@ -20,11 +20,28 @@ try:
 except ImportError:  # pragma: no cover - optional dependency
     plt = None
 
+try:  # pragma: no cover - optional dependency
+    import seaborn as sns
+except ImportError:
+    sns = None
+
 DEFAULT_E_REF = 10.0  # kWh
 DEFAULT_C_REF = 5.0   # kg
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_FIGURES_DIR = REPO_ROOT / "analysis" / "figures" / "k8s"
+
+POLICY_LABELS = {
+    "ecokube": "EcoKube",
+    "carbonscaler": "CarbonScaler",
+    "k8s": "Kubernetes base",
+}
+POLICY_ORDER = ["k8s", "carbonscaler", "ecokube"]
+POLICY_COLORS = {
+    "ecokube": "#8c564b",
+    "carbonscaler": "#ff7f0e",
+    "k8s": "#1f77b4",
+}
 
 
 def _parse_time(value: str) -> datetime | None:
@@ -279,71 +296,188 @@ def export_summary(summary: Dict[str, Dict[str, float]], out_dir: Path) -> pd.Da
     return df
 
 
-def export_figures(summary_df: pd.DataFrame, out_dir: Path) -> None:
-    if summary_df.empty:
+def _ordered_policies(policies: Iterable[str]) -> list[str]:
+    values = list(policies)
+    ordered: list[str] = []
+    for candidate in POLICY_ORDER:
+        if candidate in values:
+            ordered.append(candidate)
+    for candidate in sorted(values):
+        if candidate not in ordered:
+            ordered.append(candidate)
+    return ordered
+
+
+def _policy_label(policy: str) -> str:
+    return POLICY_LABELS.get(policy, policy)
+
+
+def _policy_color(policy: str) -> str:
+    return POLICY_COLORS.get(policy, "#4c566a")
+
+
+def _plot_message(path: Path, message: str) -> None:
+    fig, ax = plt.subplots(figsize=(6, 4))
+    ax.text(0.5, 0.5, message, ha="center", va="center")
+    ax.axis("off")
+    fig.savefig(path, dpi=300, bbox_inches="tight")
+    plt.close(fig)
+
+
+def _policy_latency_stats(per_job_df: pd.DataFrame) -> pd.DataFrame:
+    if per_job_df.empty:
+        return pd.DataFrame()
+    stats = []
+    grouped = per_job_df.groupby("policy")
+    for policy, group in grouped:
+        carbon = pd.to_numeric(group.get("carbon_g"), errors="coerce").dropna()
+        waits = pd.to_numeric(group.get("wait_s"), errors="coerce").dropna()
+        if carbon.empty or waits.empty:
+            continue
+        stats.append(
+            {
+                "policy": policy,
+                "carbon_per_job_g": float(np.median(carbon)),
+                "wait_p95_s": float(np.percentile(waits, 95)),
+            }
+        )
+    return pd.DataFrame(stats)
+
+
+def _plot_pareto_latency(stats: pd.DataFrame, outfile: Path) -> None:
+    if stats.empty:
+        _plot_message(outfile, "No per-job carbon/latency data")
+        return
+    stats = stats.copy()
+    stats.sort_values("carbon_per_job_g", inplace=True)
+    indexed = stats.set_index("policy")
+    pareto_df = compute_pareto(indexed, objectives=("carbon_per_job_g", "wait_p95_s"))
+    pareto_policies = set(pareto_df.index)
+    ordering = _ordered_policies(stats["policy"])
+    stats["policy"] = pd.Categorical(stats["policy"], categories=ordering, ordered=True)
+    stats.sort_values("policy", inplace=True)
+
+    fig, ax = plt.subplots(figsize=(7, 5))
+    front_points = []
+    for _, row in stats.iterrows():
+        policy = str(row["policy"])
+        x = row["carbon_per_job_g"]
+        y = row["wait_p95_s"]
+        ax.scatter(
+            x,
+            y,
+            s=110,
+            c=_policy_color(policy),
+            edgecolor="black" if policy in pareto_policies else "none",
+            linewidth=1.0 if policy in pareto_policies else 0.0,
+            alpha=0.9,
+        )
+        ax.annotate(_policy_label(policy), (x, y), textcoords="offset points", xytext=(6, 4))
+        if policy in pareto_policies:
+            front_points.append((x, y))
+
+    if len(front_points) > 1:
+        hull = pd.DataFrame(front_points, columns=["carbon", "latency"]).sort_values(
+            ["carbon", "latency"]
+        )
+        ax.plot(hull["carbon"], hull["latency"], color="#333333", linestyle="--", linewidth=1.2)
+
+    ax.set_xlabel("Carbon per job (g)")
+    ax.set_ylabel("Tail latency (p95, s)")
+    ax.set_title("Kubernetes Pareto (carbon vs. tail latency)")
+    ax.grid(alpha=0.35, linestyle=":")
+    fig.tight_layout()
+    fig.savefig(outfile, dpi=300, bbox_inches="tight")
+    plt.close(fig)
+
+
+def _plot_latency_violin(per_job_df: pd.DataFrame, outfile: Path) -> None:
+    data = per_job_df.copy()
+    data["wait_s"] = pd.to_numeric(data.get("wait_s"), errors="coerce")
+    data = data.dropna(subset=["policy", "wait_s"])
+    if data.empty:
+        _plot_message(outfile, "No per-job wait data")
+        return
+    ordering = _ordered_policies(sorted(data["policy"].unique()))
+    labels = [_policy_label(p) for p in ordering]
+    palette = [_policy_color(p) for p in ordering]
+    data["policy_label"] = data["policy"].map(_policy_label)
+    data["policy_label"] = pd.Categorical(data["policy_label"], categories=labels, ordered=True)
+
+    fig, ax = plt.subplots(figsize=(7, 4))
+    sns.violinplot(
+        data=data,
+        x="policy_label",
+        y="wait_s",
+        order=labels,
+        palette=palette,
+        linewidth=0.9,
+        cut=0,
+        inner="box",
+        ax=ax,
+    )
+    ax.set_xlabel("Policy")
+    ax.set_ylabel("Tail latency (s)")
+    ax.set_title("Kubernetes tail latency distribution")
+    ax.grid(axis="y", alpha=0.3, linestyle=":")
+    fig.tight_layout()
+    fig.savefig(outfile, dpi=300, bbox_inches="tight")
+    plt.close(fig)
+
+
+def _plot_makespan_bars(summary_df: pd.DataFrame, outfile: Path) -> None:
+    data = summary_df.copy()
+    data = data.dropna(subset=["policy", "makespan_s"])
+    if data.empty:
+        _plot_message(outfile, "No makespan data")
+        return
+    data["makespan_min"] = data["makespan_s"] / 60.0
+    ordering = _ordered_policies(data["policy"].unique())
+    height = []
+    labels = []
+    colors = []
+    for policy in ordering:
+        subset = data.loc[data["policy"] == policy, "makespan_min"]
+        if subset.empty:
+            continue
+        height.append(float(subset.iloc[0]))
+        labels.append(_policy_label(policy))
+        colors.append(_policy_color(policy))
+
+    if not height:
+        _plot_message(outfile, "No makespan data")
+        return
+
+    fig, ax = plt.subplots(figsize=(6, 4))
+    ax.bar(labels, height, color=colors, edgecolor="black", linewidth=0.8)
+    ax.set_xlabel("Policy")
+    ax.set_ylabel("Makespan (min)")
+    ax.set_title("Kubernetes makespan by policy")
+    ax.grid(axis="y", alpha=0.3, linestyle=":")
+    fig.tight_layout()
+    fig.savefig(outfile, dpi=300, bbox_inches="tight")
+    plt.close(fig)
+
+
+def export_figures(summary_df: pd.DataFrame, per_job_df: pd.DataFrame, out_dir: Path) -> None:
+    if summary_df.empty and per_job_df.empty:
         return
     if plt is None:  # pragma: no cover - convenience guard
         raise RuntimeError(
             "matplotlib is required to export figures. "
             "Install it with `pip install matplotlib` in your environment."
-    )
+        )
+    if sns is None:  # pragma: no cover - convenience guard
+        raise RuntimeError(
+            "seaborn is required to export violin plots. "
+            "Install it with `pip install seaborn` in your environment."
+        )
 
     out_dir.mkdir(parents=True, exist_ok=True)
-
-    xcol = "total_ci_cost_g"
-    ordered = summary_df.sort_values(xcol, na_position="last")
-
-    fig, ax = plt.subplots(figsize=(8, 5))
-    scatter = ax.scatter(
-        ordered[xcol],
-        ordered["avg_wait_s"],
-        s=110,
-        c="tab:blue",
-        label="Kubernetes policies",
-    )
-    for _, row in ordered.iterrows():
-        ax.annotate(
-            row["policy"],
-            (row[xcol], row["avg_wait_s"]),
-            textcoords="offset points",
-            xytext=(6, 6),
-        )
-    ax.set_xlabel("Total CI cost (g)")
-    ax.set_ylabel("Average wait (s)")
-    ax.set_title("Kubernetes Carbon vs Wait")
-    ax.grid(alpha=0.35)
-    ax.legend(handles=[scatter], loc="upper left")
-    fig.tight_layout()
-    fig.savefig(out_dir / "k8s_carbon_vs_wait.png", dpi=250)
-    plt.close(fig)
-
-    fig, ax = plt.subplots(figsize=(8, 5))
-    pareto_df = compute_pareto(summary_df, objectives=(xcol, "makespan_s"))
-    pareto_indices = set(pareto_df.index)
-
-    for idx, row in ordered.iterrows():
-        is_pareto = idx in pareto_indices
-        color = "tab:orange" if is_pareto else "lightgray"
-        ax.scatter(
-            row[xcol],
-            row["makespan_s"],
-            s=120,
-            c=color,
-            edgecolor="black" if is_pareto else "none",
-        )
-        ax.annotate(
-            row["policy"],
-            (row[xcol], row["makespan_s"]),
-            textcoords="offset points",
-            xytext=(6, 6),
-        )
-    ax.set_xlabel("Total CI cost (g)")
-    ax.set_ylabel("Makespan (s)")
-    ax.set_title("Kubernetes Carbon vs Makespan")
-    ax.grid(alpha=0.35)
-    fig.tight_layout()
-    fig.savefig(out_dir / "k8s_pareto_carbon_makespan.png", dpi=250)
-    plt.close(fig)
+    stats = _policy_latency_stats(per_job_df)
+    _plot_pareto_latency(stats, out_dir / "k8s_pareto_carbon_latency.png")
+    _plot_latency_violin(per_job_df, out_dir / "k8s_tail_latency_violin.png")
+    _plot_makespan_bars(summary_df, out_dir / "k8s_makespan_bars.png")
 
 
 
@@ -401,6 +535,9 @@ def run(
     for policy, path in paths:
         recs = pick_latest_records(path, policy)
         jobs = build_records(recs, durations, e_ref, c_ref)
+        if not jobs:
+            print(f"[aggregate_k8s] no valid records for policy {policy} at {path}")
+            continue
         per_job_df = export_per_job(jobs, policy, output_dir / policy)
         if not per_job_df.empty:
             combined_frames.append(per_job_df)
@@ -413,10 +550,9 @@ def run(
     if not pareto_df.empty:
         pareto_df.to_csv(summary_dir / "pareto.csv", index=False)
 
-    target_figures_dir = Path(figures_dir) if figures_dir is not None else DEFAULT_FIGURES_DIR
-    export_figures(summary_df, target_figures_dir)
-
     combined_df = pd.concat(combined_frames, ignore_index=True) if combined_frames else pd.DataFrame()
+    target_figures_dir = Path(figures_dir) if figures_dir is not None else DEFAULT_FIGURES_DIR
+    export_figures(summary_df, combined_df, target_figures_dir)
     if not combined_df.empty:
         combined_df.sort_values(["policy", "job_id"], inplace=True)
         combined_df.to_csv(output_dir / "per_job_combined.csv", index=False)
