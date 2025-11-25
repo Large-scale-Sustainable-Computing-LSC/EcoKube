@@ -33,8 +33,8 @@ from common.analysis import POLICY_ORDER, _normalise_policy, bootstrap_ci
 
 
 FIGURES_ROOT = REPO_ROOT / "analysis" / "figures"
-SIM_RESULTS_DIR = Path("kubenergysched/results_latest")
-K8S_RESULTS_DIR = Path("kubenergysched/results_k8s")
+SIM_RESULTS_DIR = REPO_ROOT / "analysis" / "sim_results_latest"
+K8S_RESULTS_DIR = REPO_ROOT / "analysis" / "k8s_results_latest"
 NODES_CSV = Path("kubenergysched/config/nodes.csv")
 
 

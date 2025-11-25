@@ -10,7 +10,7 @@ CONTROLLER_DEPLOYMENT="${KES_CONTROLLER_DEPLOYMENT:-ciw-controller}"
 CHART_DIR="$REPO_ROOT/k8s/helm"
 MANIFEST_DIR="$REPO_ROOT/k8s/manifests"
 CONFIG_DIR="$REPO_ROOT/kubenergysched/config"
-RESULT_DIR="${RESULT_DIR:-$REPO_ROOT/kubenergysched/results_latest_k8s}"
+RESULT_DIR="${RESULT_DIR:-$REPO_ROOT/analysis/k8s_results_latest}"
 
 ensure_namespace() {
   echo ">>> Ensuring namespace $NAMESPACE exists"

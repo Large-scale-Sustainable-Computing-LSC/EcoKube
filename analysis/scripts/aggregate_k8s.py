@@ -571,7 +571,7 @@ def main() -> None:
     parser.add_argument("--carbonscaler", type=Path, required=True, help="Path to carbonscaler decisions.jsonl")
     parser.add_argument("--k8s", type=Path, default=None, help="Path to k8s decisions.jsonl (optional baseline)")
     parser.add_argument("--workloads", type=Path, default=Path("kubenergysched/config/workloads.csv"))
-    parser.add_argument("--output", type=Path, default=Path("kubenergysched/results_k8s"))
+    parser.add_argument("--output", type=Path, default=Path("analysis/k8s_results"))
     parser.add_argument("--eref", type=float, default=DEFAULT_E_REF)
     parser.add_argument("--cref", type=float, default=DEFAULT_C_REF)
     parser.add_argument(

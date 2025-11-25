@@ -6,14 +6,14 @@ usage() {
 Usage: sweep_sim.sh [options]
 
 Options:
-  --target-folder DIR   Sync an existing sweep directory into results_latest and exit.
+  --target-folder DIR   Sync an existing sweep directory into analysis/sim_results_latest and exit.
   -h, --help            Show this help message.
 
 Environment variables (when running a sweep):
   SWEEP_CI_WEIGHTS      Space-separated CI weights to sweep.
   SWEEP_BATCH_SIZES     Space-separated batch sizes to sweep.
   SWEEP_OUT_PREFIX      Output directory prefix (relative to kubenergysched/ unless absolute).
-  SWEEP_SYNC_DEST       Destination directory for synced artefacts (default: kubenergysched/results_latest).
+  SWEEP_SYNC_DEST       Destination directory for synced artefacts (default: analysis/sim_results_latest).
 EOF
 }
 
@@ -26,7 +26,7 @@ if [[ ! -d "${MODULE_DIR}" ]]; then
   exit 1
 fi
 
-DEFAULT_SYNC_DEST="${MODULE_DIR}/results_latest"
+DEFAULT_SYNC_DEST="${REPO_ROOT}/analysis/sim_results_latest"
 COPY_DEST="${SWEEP_SYNC_DEST:-${DEFAULT_SYNC_DEST}}"
 RUN_SWEEP="true"
 MANUAL_COPY_SOURCE=""

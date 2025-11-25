@@ -114,7 +114,7 @@ func main() {
 	flag.Parse()
 
 	if outDir == "" {
-		outDir = "results"
+		outDir = filepath.Join("analysis", "sim_results_latest")
 	}
 	must(os.MkdirAll(outDir, 0o755))
 	cleanResults(outDir)
