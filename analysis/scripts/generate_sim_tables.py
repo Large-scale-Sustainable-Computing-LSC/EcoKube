@@ -265,7 +265,7 @@ def main() -> None:
         "--results-root",
         type=Path,
         default=None,
-        help="Path to the simulator results directory (defaults to newest in kubenergysched/results).",
+        help="Path to the simulator results directory (defaults to newest in analysis/results).",
     )
     parser.add_argument(
         "--ci-weight",
@@ -290,7 +290,7 @@ def main() -> None:
     args = parser.parse_args()
 
     repo_root = Path(__file__).resolve().parents[2]
-    default_root = repo_root / "kubenergysched" / "results"
+    default_root = repo_root / "analysis" / "results"
     results_root = args.results_root
     if results_root is None:
         results_root = _latest_results_dir(default_root)

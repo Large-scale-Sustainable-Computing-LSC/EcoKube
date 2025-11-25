@@ -1,6 +1,6 @@
 # Testing Results
 
-## kubenergysched/controller
+## hetsched/controller
 
 - `GOPROXY=off GOSUMDB=off go build ./...`
 

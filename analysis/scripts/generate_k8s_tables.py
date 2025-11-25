@@ -2,7 +2,7 @@
 """
 Generate LaTeX tables for the Kubernetes replay results.
 
-This mirrors ``generate_sim_tables.py`` but operates on ``analysis/k8s_results``
+This mirrors ``generate_sim_tables.py`` but operates on ``analysis/results_k8s``
 or any directory laid out as ``batch_<size>/summary.csv``.
 """
 
@@ -126,7 +126,7 @@ def main() -> None:
     parser.add_argument(
         "--results-root",
         type=Path,
-        default=Path("analysis/k8s_results"),
+        default=Path("analysis/results_k8s"),
         help="Root directory containing batch_<size>/summary.csv files.",
     )
     parser.add_argument(

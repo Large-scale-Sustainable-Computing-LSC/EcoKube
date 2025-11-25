@@ -1,0 +1,223 @@
+package metrics
+
+import (
+	"math"
+	"strings"
+	"time"
+
+	"github.com/g-uva/EcoKube/hetsched/pkg/core"
+)
+
+const (
+	defaultPeakPowerW = 400.0
+	defaultIdleFrac   = 0.20
+	defaultCarbonIntG = 400.0
+
+	ciSmoothWindow = 5
+	ciSmoothStep   = 5 * time.Minute
+
+	minCarbonIntensityG = 0.0
+	cpuScalingGamma     = 0.8
+)
+
+// ComputeEnergyAndCarbon estimates the energy (in kWh) and CO₂ emissions (in kg)
+// for running workload w on node n starting at time at.
+// The model combines idle/dynamic power with node/site carbon-intensity hints.
+func ComputeEnergyAndCarbon(n *core.SimulatedNode, w core.Workload, at time.Time) (energyKWh float64, carbonKg float64) {
+	if n == nil {
+		return 0, 0
+	}
+	ci := currentCI(n, at)
+	if ci <= 0 {
+		if n.Site != nil && n.Site.CarbonIntensity > 0 {
+			ci = n.Site.CarbonIntensity
+		} else if n.CarbonIntensity > 0 {
+			ci = n.CarbonIntensity
+		} else {
+			ci = defaultCarbonIntG
+		}
+	}
+
+	peak := defaultPeakPowerW
+	if n.Metadata != nil {
+		peak = parseFloat(n.Metadata["peak_power_w"], peak)
+	}
+	if n.Labels != nil {
+		if v := n.Labels["peak_power_w"]; v != "" {
+			peak = parseFloat(v, peak)
+		}
+	}
+
+	idleFrac := defaultIdleFrac
+	if n.Metadata != nil {
+		idleFrac = parseFloat(n.Metadata["idle_power_fraction"], idleFrac)
+	}
+	if idleFrac < 0 {
+		idleFrac = 0
+	} else if idleFrac > 1 {
+		idleFrac = 1
+	}
+
+	cpuFrac := 0.0
+	if n.TotalCPU > 0 {
+		cpuFrac = w.CPU / n.TotalCPU
+	}
+	if cpuFrac < 0 {
+		cpuFrac = 0
+	} else if cpuFrac > 1 {
+		cpuFrac = 1
+	}
+	if cpuFrac > 0 {
+		cpuFrac = math.Pow(cpuFrac, cpuScalingGamma)
+	}
+
+	dynamic := math.Max(peak-peak*idleFrac, 0)
+	powerW := peak*idleFrac + cpuFrac*dynamic
+
+	dur := w.Duration
+	if dur <= 0 {
+		dur = time.Second
+	}
+
+	energyKWh = (powerW / 1000.0) * dur.Hours()
+
+	if n.Site != nil {
+		if n.Site.K > 0 {
+			energyKWh *= n.Site.K
+		}
+	}
+
+	if ci > 0 {
+		scale := ci / defaultCarbonIntG
+		if scale < 0.25 {
+			scale = 0.25
+		}
+		if scale > 1.2 {
+			scale = 1.2
+		}
+		energyKWh *= scale
+	}
+
+	pue := 1.0
+	if n.Site != nil && n.Site.PUE > 0 {
+		pue = n.Site.PUE
+	}
+
+	carbonKg = energyKWh * pue * (ci / 1000.0)
+
+	if w.Labels != nil {
+		if preferred := w.Labels["preferred_site"]; preferred != "" {
+			if n.Site != nil && n.Site.ID != "" && n.Site.ID != preferred {
+				carbonKg *= 1.25
+			}
+		}
+	}
+
+	return energyKWh, carbonKg
+}
+
+// ComputeCICost keeps the legacy behaviour of returning grams of CO₂.
+func ComputeCICost(n *core.SimulatedNode, w core.Workload, at time.Time) float64 {
+	_, carbonKg := ComputeEnergyAndCarbon(n, w, at)
+	return carbonKg * 1000.0
+}
+
+func currentCI(n *core.SimulatedNode, at time.Time) float64 {
+	if n == nil {
+		return 0
+	}
+	if ciSmoothWindow <= 1 {
+		return clampCI(rawCarbonIntensity(n, at))
+	}
+	step := ciSmoothStep
+	if step <= 0 {
+		step = time.Minute
+	}
+	sum := 0.0
+	count := 0.0
+	for i := 0; i < ciSmoothWindow; i++ {
+		sampleAt := at.Add(-time.Duration(i) * step)
+		sum += rawCarbonIntensity(n, sampleAt)
+		count++
+	}
+	if count == 0 {
+		return clampCI(rawCarbonIntensity(n, at))
+	}
+	return clampCI(sum / count)
+}
+
+func rawCarbonIntensity(n *core.SimulatedNode, at time.Time) float64 {
+	profile := ""
+	if n.Metadata != nil {
+		profile = n.Metadata["ci_profile"]
+	}
+	if profile == "" && n.Labels != nil {
+		profile = n.Labels["ci_profile"]
+	}
+	if profile == "" {
+		if n.Site != nil {
+			return n.Site.CarbonIntensity
+		}
+		return n.CarbonIntensity
+	}
+
+	parts := strings.Split(profile, ":")
+	switch parts[0] {
+	case "static":
+		if len(parts) >= 2 {
+			return parseFloat(parts[1], n.CarbonIntensity)
+		}
+		return n.CarbonIntensity
+	case "sine":
+		if len(parts) < 4 {
+			return n.CarbonIntensity
+		}
+		mean := parseFloat(parts[1], n.CarbonIntensity)
+		amp := parseFloat(parts[2], 0)
+		periodSec := parseFloat(parts[3], 0)
+		if periodSec <= 0 {
+			return mean
+		}
+		theta := 2 * math.Pi * float64(at.Unix()%int64(periodSec)) / periodSec
+		return mean + amp*math.Sin(theta)
+	case "randwalk":
+		if len(parts) < 3 {
+			return n.CarbonIntensity
+		}
+		minV := parseFloat(parts[1], n.CarbonIntensity)
+		maxV := parseFloat(parts[2], n.CarbonIntensity)
+		if maxV <= minV {
+			return minV
+		}
+		// Deterministic pseudo-random walk based on time modulo range.
+		span := maxV - minV
+		stepSec := 60.0
+		if len(parts) >= 4 {
+			stepSec = parseFloat(parts[3], stepSec)
+			if stepSec <= 0 {
+				stepSec = 60
+			}
+		}
+		steps := float64(at.Unix()) / stepSec
+		frac := steps - math.Floor(steps)
+		return minV + span*frac
+	default:
+		return n.CarbonIntensity
+	}
+}
+
+// EstimateCarbonIntensity returns the forecasted carbon intensity (gCO₂/kWh)
+// for node n at time at, matching the model used by ComputeCICost.
+func EstimateCarbonIntensity(n *core.SimulatedNode, at time.Time) float64 {
+	if n == nil {
+		return 0
+	}
+	return currentCI(n, at)
+}
+
+func clampCI(ci float64) float64 {
+	if ci < minCarbonIntensityG {
+		return minCarbonIntensityG
+	}
+	return ci
+}

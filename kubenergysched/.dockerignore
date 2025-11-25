@@ -1,9 +1,0 @@
-.git
-.github
-.venv
-analysis/
-kubenergysched/results/
-kubenergysched/temp-commands.sh
-kubenergysched/tests/
-*.ipynb
-*.log

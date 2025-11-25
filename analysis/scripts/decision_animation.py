@@ -72,17 +72,17 @@ def parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:
     )
     parser.add_argument(
         "--nodes-csv",
-        default="kubenergysched/config/nodes.csv",
+        default="hetsched/config/nodes.csv",
         help="Simulator nodes CSV (simulation only).",
     )
     parser.add_argument(
         "--workloads-csv",
-        default="kubenergysched/config/workloads.csv",
+        default="hetsched/config/workloads.csv",
         help="Simulator workloads CSV (simulation only).",
     )
     parser.add_argument(
         "--sites-file",
-        default="kubenergysched/config/sites.json",
+        default="hetsched/config/sites.json",
         help="Site metadata (JSON or CSV).",
     )
     parser.add_argument(

@@ -33,9 +33,9 @@ from common.analysis import POLICY_ORDER, _normalise_policy, bootstrap_ci
 
 
 FIGURES_ROOT = REPO_ROOT / "analysis" / "figures"
-SIM_RESULTS_DIR = REPO_ROOT / "analysis" / "sim_results_latest"
-K8S_RESULTS_DIR = REPO_ROOT / "analysis" / "k8s_results_latest"
-NODES_CSV = Path("kubenergysched/config/nodes.csv")
+SIM_RESULTS_DIR = REPO_ROOT / "analysis" / "results"
+K8S_RESULTS_DIR = REPO_ROOT / "analysis" / "results_k8s"
+NODES_CSV = Path("hetsched/config/nodes.csv")
 
 
 def _load_node_power() -> tuple[dict[str, float], dict[str, float], float]:
@@ -297,7 +297,7 @@ def _load_k8s_default_from_sim(
     run_rows: list[dict] = []
     site_rows: list[dict] = []
 
-    for path in sorted(Path("kubenergysched/results").glob("k8s_*_results.csv")):
+    for path in sorted((REPO_ROOT / "analysis" / "results").glob("k8s_*_results.csv")):
         df = pd.read_csv(path)
         if df.empty:
             continue

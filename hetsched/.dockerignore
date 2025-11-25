@@ -1,0 +1,9 @@
+.git
+.github
+.venv
+analysis/
+hetsched/results/
+hetsched/temp-commands.sh
+hetsched/tests/
+*.ipynb
+*.log

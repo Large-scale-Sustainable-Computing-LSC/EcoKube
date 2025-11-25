@@ -512,7 +512,7 @@ def run(
     carb_path: Path | str,
     output_dir: Path | str,
     k8s_path: Path | str | None = None,
-    workloads_path: Path | str = Path("kubenergysched/config/workloads.csv"),
+    workloads_path: Path | str = Path("hetsched/config/workloads.csv"),
     e_ref: float = DEFAULT_E_REF,
     c_ref: float = DEFAULT_C_REF,
     figures_dir: Path | str | None = None,
@@ -570,8 +570,8 @@ def main() -> None:
     parser.add_argument("--ecokube", type=Path, required=True, help="Path to ecokube decisions.jsonl")
     parser.add_argument("--carbonscaler", type=Path, required=True, help="Path to carbonscaler decisions.jsonl")
     parser.add_argument("--k8s", type=Path, default=None, help="Path to k8s decisions.jsonl (optional baseline)")
-    parser.add_argument("--workloads", type=Path, default=Path("kubenergysched/config/workloads.csv"))
-    parser.add_argument("--output", type=Path, default=Path("analysis/k8s_results"))
+    parser.add_argument("--workloads", type=Path, default=Path("hetsched/config/workloads.csv"))
+    parser.add_argument("--output", type=Path, default=Path("analysis/results_k8s"))
     parser.add_argument("--eref", type=float, default=DEFAULT_E_REF)
     parser.add_argument("--cref", type=float, default=DEFAULT_C_REF)
     parser.add_argument(
