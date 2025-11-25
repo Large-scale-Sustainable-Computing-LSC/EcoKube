@@ -1,5 +1,5 @@
-# # HetPolicy (EcoKube)
-# POLICY=hetpolicy
+# # EcoKube policy
+# POLICY=ecokube
 # kubectl -n workloads set env deploy/ciw-controller SCHEDULER_POLICY=$POLICY
 # yq -i '... set SCHEDULER_LABEL to env(POLICY) ...' k8s/replay_workloads.yaml
 # hetsched replay
