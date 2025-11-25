@@ -24,6 +24,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import seaborn as sns
+from matplotlib.transforms import Bbox
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(REPO_ROOT) not in sys.path:
@@ -109,6 +110,84 @@ def _pareto_front(points: np.ndarray) -> np.ndarray:
     return mask
 
 
+def _label_offsets() -> list[tuple[int, int]]:
+    """Offsets (in display points) used when positioning scatter annotations."""
+
+    return [
+        (8, 6),
+        (-8, 6),
+        (8, -10),
+        (-8, -10),
+        (12, 0),
+        (-12, 0),
+        (0, 10),
+        (0, -12),
+        (14, 8),
+        (-14, 8),
+        (14, -8),
+        (-14, -8),
+    ]
+
+
+def _place_annotation(
+    ax: plt.Axes,
+    renderer,
+    occupied: list[Bbox],
+    label: str,
+    x: float,
+    y: float,
+    color: str,
+) -> None:
+    """Place a label near (x, y) while avoiding overlap with previous labels."""
+
+    fig = ax.figure
+    for dx, dy in _label_offsets():
+        ha = "left" if dx >= 0 else "right"
+        va = "bottom" if dy >= 0 else "top"
+        ann = ax.annotate(
+            label,
+            (x, y),
+            textcoords="offset points",
+            xytext=(dx, dy),
+            ha=ha,
+            va=va,
+            fontsize=9,
+            color="#222222",
+            arrowprops=dict(
+                arrowstyle="->",
+                color=color or "#444444",
+                lw=0.6,
+                shrinkA=0,
+                shrinkB=2,
+            ),
+        )
+        fig.canvas.draw()
+        bbox = ann.get_window_extent(renderer=renderer).expanded(1.05, 1.1)
+        if not any(bbox.overlaps(existing) for existing in occupied):
+            occupied.append(bbox)
+            return
+        ann.remove()
+
+    # Fallback placement if no offset avoided overlap.
+    ax.annotate(
+        label,
+        (x, y),
+        textcoords="offset points",
+        xytext=(6, 12),
+        ha="left",
+        va="bottom",
+        fontsize=9,
+        color="#222222",
+        arrowprops=dict(
+            arrowstyle="->",
+            color=color or "#444444",
+            lw=0.6,
+            shrinkA=0,
+            shrinkB=2,
+        ),
+    )
+
+
 def _load_sim_runs(
     node_power: dict[str, float],
     site_power: dict[str, float],
@@ -119,7 +198,10 @@ def _load_sim_runs(
     run_rows = []
     site_rows = []
 
-    for path in sorted(SIM_RESULTS_DIR.glob("*_results.csv")):
+    paths = sorted(SIM_RESULTS_DIR.glob("*_results.csv"))
+    if not paths:
+        paths = sorted(SIM_RESULTS_DIR.rglob("*_results.csv"))
+    for path in paths:
         df = pd.read_csv(path)
         if df.empty or "sched" not in df.columns:
             continue
@@ -297,7 +379,11 @@ def _load_k8s_default_from_sim(
     run_rows: list[dict] = []
     site_rows: list[dict] = []
 
-    for path in sorted((REPO_ROOT / "analysis" / "results").glob("k8s_*_results.csv")):
+    base = REPO_ROOT / "analysis" / "results"
+    paths = sorted(base.glob("k8s_*_results.csv"))
+    if not paths:
+        paths = sorted(base.rglob("k8s_*_results.csv"))
+    for path in paths:
         df = pd.read_csv(path)
         if df.empty:
             continue
@@ -464,6 +550,7 @@ def _plot_pareto(
 
     fig, ax = plt.subplots(figsize=(7, 5))
     front_x, front_y = [], []
+    label_specs: list[tuple[str, float, float, str]] = []
 
     for (policy, row), is_front in zip(stats.iterrows(), mask):
         x = row["energy_median"]
@@ -485,7 +572,7 @@ def _plot_pareto(
             markeredgecolor="black" if is_front else "none",
             markeredgewidth=1.0 if is_front else 0.0,
         )
-        ax.annotate(policy, (x, y), textcoords="offset points", xytext=(6, 4))
+        label_specs.append((policy, x, y, colors.get(policy, "#444444")))
         if is_front:
             front_x.append(x)
             front_y.append(y)
@@ -498,6 +585,11 @@ def _plot_pareto(
     ax.set_ylabel(y_label)
     ax.set_title(f"{backend.upper()} Pareto")
     ax.grid(alpha=0.3, linestyle=":")
+    fig.canvas.draw()
+    renderer = fig.canvas.get_renderer()
+    occupied: list[Bbox] = []
+    for policy, x, y, color in label_specs:
+        _place_annotation(ax, renderer, occupied, policy, x, y, color)
     fig.tight_layout()
     fig.savefig(outfile, dpi=300, bbox_inches="tight")
     plt.close(fig)

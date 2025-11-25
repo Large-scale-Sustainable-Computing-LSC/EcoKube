@@ -15,14 +15,14 @@ import (
 	"strings"
 	"time"
 
+	"github.com/g-uva/EcoKube/hetsched/pkg/core"
+	"github.com/g-uva/EcoKube/hetsched/pkg/loader"
+	"github.com/g-uva/EcoKube/hetsched/pkg/metrics"
 	"github.com/g-uva/EcoKube/policies/carbonscaler"
 	"github.com/g-uva/EcoKube/policies/ecokube"
 	"github.com/g-uva/EcoKube/policies/k8sched"
 	"github.com/g-uva/EcoKube/policies/keids"
 	"github.com/g-uva/EcoKube/policies/topsis"
-	"github.com/g-uva/EcoKube/hetsched/pkg/core"
-	"github.com/g-uva/EcoKube/hetsched/pkg/loader"
-	"github.com/g-uva/EcoKube/hetsched/pkg/metrics"
 )
 
 // cross-product: (policy × ci_weight × batch_size)
@@ -86,6 +86,7 @@ func main() {
 	var thetaPath string
 	var arrivalSeed int64
 	var hetFitWeight float64
+	var skipCarbonscaler bool
 
 	flag.StringVar(&nodesCSV, "nodes-csv", "config/nodes.csv", "path to nodes CSV")
 	flag.StringVar(&wlCSV, "wl-csv", "config/workloads.csv", "path to workloads CSV")
@@ -111,6 +112,7 @@ func main() {
 	flag.StringVar(&thetaPath, "theta-yaml", "", "optional Theta YAML to align simulator parameters with the Kubernetes controller")
 	flag.Int64Var(&arrivalSeed, "arrival-seed", 1337, "seed for synthetic arrival schedules")
 	flag.Float64Var(&hetFitWeight, "het-w-fit", 0.2, "device/accelerator fit weight (0 disables the term)")
+	flag.BoolVar(&skipCarbonscaler, "skip-carbonscaler", false, "skip CarbonScaler policy during simulator runs")
 	flag.Parse()
 
 	if outDir == "" {
@@ -123,14 +125,12 @@ func main() {
 		sitesCSV = filepath.Join(filepath.Dir(nodesCSV), "sites.csv")
 	}
 
+	autoTrace := false
+	var tracer core.DecisionTracer
 	if tracePath == "auto" {
-		tracePath = filepath.Join(outDir, "decisions.jsonl")
-	}
-
-	var (
-		tracer core.DecisionTracer
-	)
-	if tracePath != "" {
+		autoTrace = true
+		tracePath = ""
+	} else if tracePath != "" {
 		must(os.MkdirAll(filepath.Dir(tracePath), 0o755))
 		tw, err := core.NewJSONTraceWriter(tracePath)
 		must(err)
@@ -148,6 +148,7 @@ func main() {
 		ecoModes = ecoModes[:1]
 	}
 	ecoWeightSets := parseEcoWeightSets(ecoWeightsFlag)
+	durationOverrideSeconds := durationsToSeconds(overrideDurations)
 
 	// ---- Load workloads once and apply duration knobs ----
 	workloads := loader.LoadWorkloadsFromCSV(wlCSV)
@@ -213,6 +214,41 @@ func main() {
 			scenarioSeed := arrivalSeed + int64(target)*1000 + int64(arrivalRate*1000)
 			for _, ciW := range ciWeights {
 				for _, bs := range batchSizes {
+					ciSlug := slugifyFloat(ciW)
+					arrivalSlug := slugifyFloat(arrivalRate)
+					comboDir := filepath.Join(outDir, fmt.Sprintf("jobs_%d_ar_%s", target, arrivalSlug), fmt.Sprintf("ci_%s_bs_%d", ciSlug, bs))
+					must(os.MkdirAll(comboDir, 0o755))
+
+					writeParamsJSON(comboDir, runParams{
+						CIWeight:          ciW,
+						BatchSize:         bs,
+						JobCount:          target,
+						ArrivalRate:       arrivalRate,
+						ArrivalMode:       arrivalMode,
+						WarmupMinutes:     warmupMin,
+						AlphaMass:         alphaMass,
+						LookaheadMin:      lookaheadMin,
+						DurScale:          durScale,
+						DurationOverrides: durationOverrideSeconds,
+						NodesCSV:          nodesCSV,
+						WorkloadsCSV:      wlCSV,
+						HetFitWeight:      hetFitWeight,
+						SkipCarbonscaler:  skipCarbonscaler,
+						Timestamp:         time.Now().UTC().Format(time.RFC3339),
+					})
+
+					currentTracer := tracer
+					var comboClose func()
+					if autoTrace {
+						traceFile := filepath.Join(comboDir, "decisions.jsonl")
+						must(os.MkdirAll(filepath.Dir(traceFile), 0o755))
+						tw, err := core.NewJSONTraceWriter(traceFile)
+						must(err)
+						currentTracer = tw
+						fmt.Printf("Tracing decisions to %s\n", traceFile)
+						comboClose = func() { _ = tw.Close() }
+					}
+
 					specs := []struct {
 						name string
 						run  func([]core.Workload, int64, int) ([]core.LogEntry, float64)
@@ -229,8 +265,8 @@ func main() {
 								pol := &k8sched.Policy{}
 								sim := &core.BaseSim{}
 								sim.Init(nodes, pol)
-								if tracer != nil {
-									sim.SetTracer(tracer)
+								if currentTracer != nil {
+									sim.SetTracer(currentTracer)
 								}
 								sim.SetScheduleBatchSize(bs)
 								sim.CICalc = func(n *core.SimulatedNode, w core.Workload, at time.Time) float64 {
@@ -250,7 +286,7 @@ func main() {
 								elapsed := float64(time.Since(start).Milliseconds())
 
 								logs := sim.Logs()
-								writePerJobCSV(outDir, policyID, ciW, bs, target, arrivalRate, rep, logs)
+								writePerJobCSV(comboDir, policyID, ciW, bs, target, arrivalRate, rep, logs)
 
 								s := summariseRun(policyID, ciW, bs, target, arrivalRate, warmupDuration, logs, workloadByID)
 								s.ElapsedMs = elapsed
@@ -279,8 +315,8 @@ func main() {
 								pol := &keids.Policy{Weights: keids.DefaultWeights()}
 								sim := &core.BaseSim{}
 								sim.Init(nodes, pol)
-								if tracer != nil {
-									sim.SetTracer(tracer)
+								if currentTracer != nil {
+									sim.SetTracer(currentTracer)
 								}
 								sim.SetScheduleBatchSize(bs)
 								sim.CICalc = func(n *core.SimulatedNode, w core.Workload, at time.Time) float64 {
@@ -300,7 +336,7 @@ func main() {
 								elapsed := float64(time.Since(start).Milliseconds())
 
 								logs := sim.Logs()
-								writePerJobCSV(outDir, policyID, ciW, bs, target, arrivalRate, rep, logs)
+								writePerJobCSV(comboDir, policyID, ciW, bs, target, arrivalRate, rep, logs)
 
 								s := summariseRun(policyID, ciW, bs, target, arrivalRate, warmupDuration, logs, workloadByID)
 								s.ElapsedMs = elapsed
@@ -332,8 +368,8 @@ func main() {
 								pol := &topsis.Policy{Weights: topsis.DefaultWeights()}
 								sim := &core.BaseSim{}
 								sim.Init(nodes, pol)
-								if tracer != nil {
-									sim.SetTracer(tracer)
+								if currentTracer != nil {
+									sim.SetTracer(currentTracer)
 								}
 								sim.SetScheduleBatchSize(bs)
 								sim.CICalc = func(n *core.SimulatedNode, w core.Workload, at time.Time) float64 {
@@ -353,7 +389,7 @@ func main() {
 								elapsed := float64(time.Since(start).Milliseconds())
 
 								logs := sim.Logs()
-								writePerJobCSV(outDir, policyID, ciW, bs, target, arrivalRate, rep, logs)
+								writePerJobCSV(comboDir, policyID, ciW, bs, target, arrivalRate, rep, logs)
 
 								s := summariseRun(policyID, ciW, bs, target, arrivalRate, warmupDuration, logs, workloadByID)
 								s.ElapsedMs = elapsed
@@ -407,7 +443,7 @@ func main() {
 								elapsed := float64(time.Since(start).Milliseconds())
 
 								logs := sim.Logs()
-								writePerJobCSV(outDir, policyID, ciW, bs, target, arrivalRate, rep, logs)
+								writePerJobCSV(comboDir, policyID, ciW, bs, target, arrivalRate, rep, logs)
 
 								s := summariseRun(policyID, ciW, bs, target, arrivalRate, warmupDuration, logs, workloadByID)
 								s.ElapsedMs = elapsed
@@ -467,8 +503,8 @@ func main() {
 										OverrideName: policyID,
 									}
 									sim.Init(nodes, pol)
-									if tracer != nil {
-										sim.SetTracer(tracer)
+									if currentTracer != nil {
+										sim.SetTracer(currentTracer)
 									}
 									sim.SetScheduleBatchSize(bs)
 									sim.CICalc = func(n *core.SimulatedNode, w core.Workload, at time.Time) float64 {
@@ -487,7 +523,7 @@ func main() {
 									elapsed := float64(time.Since(start).Milliseconds())
 
 									logs := sim.Logs()
-									writePerJobCSV(outDir, policyID, ciW, bs, target, arrivalRate, rep, logs)
+									writePerJobCSV(comboDir, policyID, ciW, bs, target, arrivalRate, rep, logs)
 
 									s := summariseRun(policyID, ciW, bs, target, arrivalRate, warmupDuration, logs, workloadByID)
 									s.ElapsedMs = elapsed
@@ -517,6 +553,10 @@ func main() {
 							copy(wcopy, templateWl[:target])
 							_, _ = spec.run(wcopy, repSeed, rep)
 						}
+					}
+
+					if comboClose != nil {
+						comboClose()
 					}
 				}
 			}
@@ -989,6 +1029,60 @@ func summariseRun(policy string, ciW float64, bs int, jobCount int, arrivalRate 
 		DurationScale:     0, // filled at caller
 		DurationOverrides: "",
 	}
+}
+
+type runParams struct {
+	CIWeight          float64   `json:"ci_weight"`
+	BatchSize         int       `json:"batch_size"`
+	JobCount          int       `json:"job_count"`
+	ArrivalRate       float64   `json:"arrival_rate"`
+	ArrivalMode       string    `json:"arrival_mode"`
+	WarmupMinutes     float64   `json:"warmup_min"`
+	AlphaMass         float64   `json:"alpha_mass"`
+	LookaheadMin      int       `json:"lookahead_min"`
+	DurScale          float64   `json:"dur_scale"`
+	DurationOverrides []float64 `json:"duration_overrides_s"`
+	NodesCSV          string    `json:"nodes_csv"`
+	WorkloadsCSV      string    `json:"workloads_csv"`
+	HetFitWeight      float64   `json:"het_fit_weight"`
+	SkipCarbonscaler  bool      `json:"skip_carbonscaler"`
+	Timestamp         string    `json:"timestamp"`
+}
+
+func writeParamsJSON(dir string, params runParams) {
+	payload, err := json.MarshalIndent(params, "", "  ")
+	if err != nil {
+		log.Printf("params.json: %v", err)
+		return
+	}
+	path := filepath.Join(dir, "params.json")
+	if err := os.WriteFile(path, payload, 0o644); err != nil {
+		log.Printf("params.json: %v", err)
+	}
+}
+
+func durationsToSeconds(values []time.Duration) []float64 {
+	if len(values) == 0 {
+		return nil
+	}
+	out := make([]float64, len(values))
+	for i, d := range values {
+		out[i] = d.Seconds()
+	}
+	return out
+}
+
+func slugifyFloat(value float64) string {
+	slug := strings.ReplaceAll(fmt.Sprintf("%.2f", value), ".", "p")
+	slug = strings.ReplaceAll(slug, "-", "m")
+	slug = strings.TrimRight(slug, "0")
+	if strings.HasSuffix(slug, "p") {
+		slug += "0"
+	}
+	if slug == "" {
+		return "0"
+	}
+	return slug
 }
 
 func clamp01(v float64) float64 {
