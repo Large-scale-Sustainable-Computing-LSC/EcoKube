@@ -75,6 +75,7 @@ func jobToCore(job types.Job) core.Job {
 		Tags:              job.Tags,
 		EstimatedDuration: job.EstimatedDuration,
 		SubmitAt:          job.SubmitTime,
+		Class:             job.Class,
 	}
 }
 

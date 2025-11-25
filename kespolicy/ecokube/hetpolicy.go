@@ -36,10 +36,11 @@ const (
 
 // Config gathers weights and optional thresholds for the composite score.
 type Config struct {
-	Alpha float64 // relative impact of carbon emissions
-	Beta  float64 // relative impact of runtime projections
-	Gamma float64 // relative impact of queue delay
-	Delta float64 // relative impact of data-movement hints
+	Alpha     float64 // relative impact of carbon emissions
+	Beta      float64 // relative impact of runtime projections
+	Gamma     float64 // relative impact of queue delay
+	Delta     float64 // relative impact of data-movement hints
+	FitWeight float64 // relative impact of device-class fit
 
 	// Bounds used by the epsilon-constraint variant (<= 0 disables each bound).
 	MaxRuntime      float64
@@ -52,10 +53,11 @@ type Config struct {
 // DefaultConfig returns conservative weighting ready to tweak per deployment.
 func DefaultConfig() Config {
 	return Config{
-		Alpha: 0.25,
-		Beta:  0.40,
-		Gamma: 0.35,
-		Delta: 0.0,
+		Alpha:     0.25,
+		Beta:      0.40,
+		Gamma:     0.35,
+		Delta:     0.0,
+		FitWeight: 0.2,
 	}
 }
 
@@ -118,12 +120,14 @@ type candidateMetrics struct {
 	runtime float64
 	queue   float64
 	move    float64
+	fit     float64
 
 	co2Hat     float64
 	energyHat  float64
 	runtimeHat float64
 	queueHat   float64
 	moveHat    float64
+	fitHat     float64
 }
 
 func computeCandidateMetrics(job core.Job, nodes []core.SimulatedNode, now time.Time) ([]candidateMetrics, error) {
@@ -139,6 +143,7 @@ func computeCandidateMetrics(job core.Job, nodes []core.SimulatedNode, now time.
 	rtVals := make([]float64, 0, len(nodes))
 	queueVals := make([]float64, 0, len(nodes))
 	moveVals := make([]float64, 0, len(nodes))
+	fitVals := make([]float64, 0, len(nodes))
 
 	for i, n := range nodes {
 		item := candidateMetrics{
@@ -162,12 +167,14 @@ func computeCandidateMetrics(job core.Job, nodes []core.SimulatedNode, now time.
 		item.queue = queueSeconds(&nCopy, now)
 		item.queue += interferencePenalty(&nCopy, job)
 		item.move = dataMovementHint(job, &nCopy)
+		item.fit = deviceFitScore(job, nCopy)
 
 		energyVals = append(energyVals, item.energy)
 		co2Vals = append(co2Vals, item.co2)
 		rtVals = append(rtVals, item.runtime)
 		queueVals = append(queueVals, item.queue)
 		moveVals = append(moveVals, item.move)
+		fitVals = append(fitVals, item.fit)
 
 		items[i] = item
 	}
@@ -177,6 +184,7 @@ func computeCandidateMetrics(job core.Job, nodes []core.SimulatedNode, now time.
 	rtHats := normaliseMinMax(rtVals)
 	queueHats := normaliseMinMax(queueVals)
 	moveHats := normaliseMinMax(moveVals)
+	fitHats := normaliseMinMax(fitVals)
 
 	var idx int
 	for i := range items {
@@ -188,6 +196,7 @@ func computeCandidateMetrics(job core.Job, nodes []core.SimulatedNode, now time.
 		items[i].runtimeHat = rtHats[idx]
 		items[i].queueHat = queueHats[idx]
 		items[i].moveHat = moveHats[idx]
+		items[i].fitHat = fitHats[idx]
 		idx++
 	}
 
@@ -225,6 +234,8 @@ func (p *Policy) scoreWeighted(items []candidateMetrics) core.Scores {
 		energyPenalty := it.energyHat
 		energyPenalty *= 1 + 0.04*queueHat
 
+		fitHat := clamp(it.fitHat, 0, 1)
+
 		queueRelax := queueGuardRelax * queueHat
 		allowed := minCarbon * (1 + math.Min(carbonGuardFraction, slack+queueRelax))
 		guarded := minCarbon * (1 + carbonGuardFraction)
@@ -251,11 +262,19 @@ func (p *Policy) scoreWeighted(items []candidateMetrics) core.Scores {
 		if queueTerm > 0 {
 			queueTerm = math.Pow(queueTerm, 0.7)
 		}
+		fitPenalty := 0.0
+		if p.Cfg.FitWeight > 0 {
+			fitPenalty = 1 - fitHat
+			if fitPenalty < 0 {
+				fitPenalty = 0
+			}
+		}
 		score := p.Cfg.Alpha*carbonPenalty +
 			energyWeight*energyPenalty +
 			p.Cfg.Beta*it.runtimeHat +
 			p.Cfg.Gamma*queueTerm +
-			p.Cfg.Delta*it.moveHat
+			p.Cfg.Delta*it.moveHat +
+			p.Cfg.FitWeight*fitPenalty
 		scores[it.id] = score
 	}
 	if len(scores) == 0 {
@@ -371,6 +390,7 @@ func workloadFromJob(j core.Job) core.Workload {
 		CPU:        j.CPUReq,
 		Memory:     j.MemReq,
 		Labels:     j.Labels,
+		Class:      j.Class,
 	}
 }
 
@@ -476,6 +496,57 @@ func hasLabelValue(labels map[string]string, key string, expected ...string) boo
 		}
 	}
 	return false
+}
+
+func deviceFitScore(job core.Job, node core.SimulatedNode) float64 {
+	jobClass := resolveJobClass(job)
+	nodeClass := resolveNodeClass(node)
+	if jobClass == "" || nodeClass == "" {
+		return 0.5
+	}
+	if jobClass == nodeClass {
+		return 1.0
+	}
+	if jobClass == core.ClassCPU && (nodeClass == core.ClassGPU || nodeClass == core.ClassMem) {
+		return 0.7
+	}
+	return 0.3
+}
+
+func resolveJobClass(job core.Job) string {
+	if c := core.NormaliseClass(job.Class); c != "" {
+		return c
+	}
+	if job.Labels != nil {
+		if c := core.NormaliseClass(job.Labels["class"]); c != "" {
+			return c
+		}
+		if c := core.NormaliseClass(job.Labels["resource_class"]); c != "" {
+			return c
+		}
+		if strings.EqualFold(job.Labels["requires_gpu"], "true") {
+			return core.ClassGPU
+		}
+	}
+	return ""
+}
+
+func resolveNodeClass(node core.SimulatedNode) string {
+	if c := core.NormaliseClass(node.DeviceClass); c != "" {
+		return c
+	}
+	if node.Labels != nil {
+		if c := core.NormaliseClass(node.Labels["device_class"]); c != "" {
+			return c
+		}
+		if c := core.NormaliseClass(node.Labels["resource_class"]); c != "" {
+			return c
+		}
+		if strings.EqualFold(node.Labels["gpu"], "true") {
+			return core.ClassGPU
+		}
+	}
+	return ""
 }
 
 // normaliseMinMax maps input values to [0,1]. If the range collapses, use 0.5.

@@ -16,6 +16,7 @@ type SimulatedNode struct {
 	CarbonIntensity float64 // gCO₂/kWh (optional, if we have traces keep it)
 	Labels          map[string]string
 	Metadata        map[string]string
+	DeviceClass     string
 
 	Reservations []Reservation
 	SiteID       string

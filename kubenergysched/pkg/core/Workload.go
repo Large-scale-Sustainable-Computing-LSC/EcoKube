@@ -11,8 +11,9 @@ type Workload struct {
 	Duration   time.Duration
 	CPU        float64
 	Memory     float64
-	Tag		 string
-	Labels	 map[string]string
+	Tag        string
+	Labels     map[string]string
+	Class      string
 }
 
 type WorkloadTestbed struct {

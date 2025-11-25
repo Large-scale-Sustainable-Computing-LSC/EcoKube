@@ -85,6 +85,7 @@ func main() {
 	var warmupMin float64
 	var thetaPath string
 	var arrivalSeed int64
+	var hetFitWeight float64
 
 	flag.StringVar(&nodesCSV, "nodes-csv", "config/nodes.csv", "path to nodes CSV")
 	flag.StringVar(&wlCSV, "wl-csv", "config/workloads.csv", "path to workloads CSV")
@@ -109,6 +110,7 @@ func main() {
 	flag.Float64Var(&warmupMin, "warmup-min", 0, "warm-up window in minutes excluded from metrics (simulation only)")
 	flag.StringVar(&thetaPath, "theta-yaml", "", "optional Theta YAML to align simulator parameters with the Kubernetes controller")
 	flag.Int64Var(&arrivalSeed, "arrival-seed", 1337, "seed for synthetic arrival schedules")
+	flag.Float64Var(&hetFitWeight, "het-w-fit", 0.2, "device/accelerator fit weight (0 disables the term)")
 	flag.Parse()
 
 	if outDir == "" {
@@ -458,6 +460,7 @@ func main() {
 									cfg.Alpha = weightCfg.Alpha
 									cfg.Beta = weightCfg.Beta
 									cfg.Gamma = weightCfg.Gamma
+									cfg.FitWeight = hetFitWeight
 									pol := &ecokube.Policy{
 										Mode:         mode,
 										Cfg:          cfg,

@@ -15,6 +15,7 @@ type Job struct {
 	EstimatedDuration float64   // seconds; optional
 	SubmitTime        time.Time // creation timestamp
 	SlackSeconds      float64   // how long the job can be deferred
+	Class             string
 }
 
 // Site-level factors (external config)

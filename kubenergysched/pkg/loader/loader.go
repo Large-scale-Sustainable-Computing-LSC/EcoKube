@@ -21,9 +21,11 @@ func LoadNodesFromCSV(path string) []*core.SimulatedNode {
 	defer f.Close()
 	r := csv.NewReader(f)
 
-	if _, err := r.Read(); err != nil {
+	header, err := r.Read()
+	if err != nil {
 		log.Fatalf("read header: %v", err)
 	}
+	cols := csvIndex(header)
 
 	var nodes []*core.SimulatedNode
 	for {
@@ -35,10 +37,13 @@ func LoadNodesFromCSV(path string) []*core.SimulatedNode {
 			log.Fatalf("read record: %v", err)
 		}
 
-		name := rec[0]
-		cpu, _ := strconv.ParseFloat(rec[1], 64)
-		mem, _ := strconv.ParseFloat(rec[2], 64)
-		profile := rec[3]
+		name := csvValue(rec, cols, "name")
+		if name == "" {
+			name = csvValue(rec, cols, "id")
+		}
+		cpu, _ := strconv.ParseFloat(csvValue(rec, cols, "cpu"), 64)
+		mem, _ := strconv.ParseFloat(csvValue(rec, cols, "mem"), 64)
+		profile := csvValue(rec, cols, "ci_profile")
 
 		baseCI := 0.0
 		parts := strings.Split(profile, ":")
@@ -57,20 +62,20 @@ func LoadNodesFromCSV(path string) []*core.SimulatedNode {
 		n := core.NewNode(name, cpu, mem, baseCI)
 		n.Metadata = map[string]string{"ci_profile": profile}
 
-		if len(rec) >= 5 && rec[4] != "" {
-			n.SiteID = rec[4]
+		if v := csvValue(rec, cols, "site"); v != "" {
+			n.SiteID = v
 		}
-		if len(rec) >= 6 && rec[5] != "" {
+		if v := csvValue(rec, cols, "peak_power_w"); v != "" {
 			if n.Metadata == nil {
 				n.Metadata = map[string]string{}
 			}
-			n.Metadata["peak_power_w"] = rec[5]
+			n.Metadata["peak_power_w"] = v
 		}
-		if len(rec) >= 7 && strings.TrimSpace(rec[6]) != "" {
+		if labelsRaw := csvValue(rec, cols, "labels"); labelsRaw != "" {
 			if n.Labels == nil {
 				n.Labels = map[string]string{}
 			}
-			for _, token := range strings.Split(rec[6], ",") {
+			for _, token := range strings.Split(labelsRaw, ",") {
 				token = strings.TrimSpace(token)
 				if token == "" {
 					continue
@@ -81,6 +86,12 @@ func LoadNodesFromCSV(path string) []*core.SimulatedNode {
 				} else {
 					n.Labels[token] = "true"
 				}
+			}
+		}
+		n.DeviceClass = core.NormaliseClass(csvValue(rec, cols, "device_class"))
+		if n.DeviceClass == "" {
+			if n.Labels != nil && strings.EqualFold(n.Labels["gpu"], "true") {
+				n.DeviceClass = core.ClassGPU
 			}
 		}
 		nodes = append(nodes, n)
@@ -96,9 +107,11 @@ func LoadWorkloadsFromCSV(path string) []core.Workload {
 	defer f.Close()
 
 	r := csv.NewReader(f)
-	if _, err := r.Read(); err != nil {
+	header, err := r.Read()
+	if err != nil {
 		log.Fatalf("LoadWorkloadsFromCSV: read header: %v", err)
 	}
+	cols := csvIndex(header)
 
 	var wls []core.Workload
 	for {
@@ -108,40 +121,38 @@ func LoadWorkloadsFromCSV(path string) []core.Workload {
 		} else if err != nil {
 			log.Fatalf("LoadWorkloadsFromCSV: read record: %v", err)
 		}
-		id := rec[0]
-		submit, _ := time.Parse(time.RFC3339, rec[1])
-		cpuF, _ := strconv.ParseFloat(rec[2], 64)
-		memF, _ := strconv.ParseFloat(rec[3], 64)
-		durSec, _ := strconv.Atoi(rec[4])
-		tag := ""
-		if len(rec) >= 6 {
-			tag = rec[5]
-		}
+		id := csvValue(rec, cols, "id")
+		submit, _ := time.Parse(time.RFC3339, csvValue(rec, cols, "submit"))
+		cpuF, _ := strconv.ParseFloat(csvValue(rec, cols, "cpu"), 64)
+		memF, _ := strconv.ParseFloat(csvValue(rec, cols, "mem"), 64)
+		durSec, _ := strconv.Atoi(csvValue(rec, cols, "duration"))
+		tag := csvValue(rec, cols, "tag")
 		var labels map[string]string
-		if len(rec) >= 7 {
-			preferred := strings.TrimSpace(rec[6])
-			if preferred != "" {
-				labels = map[string]string{"preferred_site": preferred}
-			}
+		if preferred := csvValue(rec, cols, "preferred_site"); preferred != "" {
+			labels = map[string]string{"preferred_site": preferred}
 		}
-		resourceClass := ""
-		if len(rec) >= 8 {
-			resourceClass = strings.TrimSpace(rec[7])
-			if resourceClass != "" {
-				if labels == nil {
-					labels = map[string]string{}
-				}
-				labels["resource_class"] = resourceClass
+		resourceClass := csvValue(rec, cols, "resource_class")
+		if resourceClass != "" {
+			if labels == nil {
+				labels = map[string]string{}
 			}
+			labels["resource_class"] = resourceClass
 		}
-		if len(rec) >= 9 && strings.TrimSpace(rec[8]) != "" {
-			if v, err := strconv.Atoi(strings.TrimSpace(rec[8])); err == nil && v > 0 {
+		if gpuStr := csvValue(rec, cols, "gpu_count"); gpuStr != "" {
+			if v, err := strconv.Atoi(gpuStr); err == nil && v > 0 {
 				if labels == nil {
 					labels = map[string]string{}
 				}
 				labels["requires_gpu"] = "true"
 				labels["gpu_count"] = strconv.Itoa(v)
 			}
+		}
+		classVal := core.NormaliseClass(csvValue(rec, cols, "class"))
+		if classVal == "" {
+			classVal = core.NormaliseClass(resourceClass)
+		}
+		if classVal == "" && labels != nil && strings.EqualFold(labels["requires_gpu"], "true") {
+			classVal = core.ClassGPU
 		}
 		if tag == "" && resourceClass != "" {
 			tag = resourceClass
@@ -155,6 +166,7 @@ func LoadWorkloadsFromCSV(path string) []core.Workload {
 			Memory:     memF,
 			Tag:        tag,
 			Labels:     labels,
+			Class:      classVal,
 		})
 	}
 	return wls
@@ -178,4 +190,27 @@ func (t Theta) Weights() core.Weights {
 
 func (t Theta) Refs() core.RefScales {
 	return core.RefScales{ERef: t.ERef, CRef: t.CRef}
+}
+
+func csvIndex(header []string) map[string]int {
+	idx := make(map[string]int, len(header))
+	for i, h := range header {
+		key := strings.TrimSpace(strings.ToLower(h))
+		if key == "" {
+			continue
+		}
+		idx[key] = i
+	}
+	return idx
+}
+
+func csvValue(rec []string, cols map[string]int, key string) string {
+	if cols == nil {
+		return ""
+	}
+	idx, ok := cols[strings.TrimSpace(strings.ToLower(key))]
+	if !ok || idx < 0 || idx >= len(rec) {
+		return ""
+	}
+	return strings.TrimSpace(rec[idx])
 }

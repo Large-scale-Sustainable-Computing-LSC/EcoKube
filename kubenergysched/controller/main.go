@@ -485,6 +485,13 @@ func (c *controller) snapshot(ctx context.Context) (*clusterSnapshot, error) {
 			Labels:       labelsCopy,
 			Metrics:      map[string]float64{},
 		}
+		deviceClass := core.NormaliseClass(labelsCopy["ciw/device_class"])
+		if deviceClass == "" {
+			deviceClass = core.NormaliseClass(labelsCopy["device_class"])
+		}
+		if deviceClass == "" && strings.EqualFold(labelsCopy["gpu"], "true") {
+			deviceClass = core.ClassGPU
+		}
 		sim := core.SimulatedNode{
 			ID:              n.Name,
 			Name:            n.Name,
@@ -496,6 +503,7 @@ func (c *controller) snapshot(ctx context.Context) (*clusterSnapshot, error) {
 			Labels:          labelsCopy,
 			SiteID:          siteID,
 			Site:            site,
+			DeviceClass:     deviceClass,
 		}
 		sim.Reservations = append(sim.Reservations, reservations[n.Name]...)
 		queue := queueSecondsForNode(&sim, now)
@@ -588,6 +596,7 @@ func jobToWorkload(job types.Job) core.Workload {
 		CPU:        job.CPU,
 		Memory:     job.MemoryGB,
 		Labels:     labels,
+		Class:      job.Class,
 	}
 }
 
@@ -832,6 +841,21 @@ func extractJob(pod *corev1.Pod) (types.Job, error) {
 			tags[k] = v
 		}
 	}
+	classVal := ""
+	if pod.Labels != nil {
+		if v := core.NormaliseClass(pod.Labels["ciw/resource_class"]); v != "" {
+			classVal = v
+		} else if v := core.NormaliseClass(pod.Labels["resource_class"]); v != "" {
+			classVal = v
+		} else if strings.EqualFold(pod.Labels["gpu"], "true") {
+			classVal = core.ClassGPU
+		}
+	}
+	if classVal == "" && pod.Annotations != nil {
+		if v := core.NormaliseClass(pod.Annotations["ciw/class"]); v != "" {
+			classVal = v
+		}
+	}
 	slack := 0.0
 	if pod.Annotations != nil {
 		if v := pod.Annotations["ciw/max_defer_s"]; v != "" {
@@ -848,6 +872,7 @@ func extractJob(pod *corev1.Pod) (types.Job, error) {
 		EstimatedDuration: duration,
 		SubmitTime:        pod.CreationTimestamp.Time,
 		SlackSeconds:      slack,
+		Class:             classVal,
 	}, nil
 }
 
@@ -917,6 +942,7 @@ func buildScheduler(policy string, deps engine.Deps) (scheduler, error) {
 		cfg.Beta = parseEnvFloat("ECOKUBE_BETA", 0.18)
 		cfg.Gamma = parseEnvFloat("ECOKUBE_GAMMA", 0.10)
 		cfg.Delta = parseEnvFloat("ECOKUBE_DELTA", cfg.Delta)
+		cfg.FitWeight = parseEnvFloat("ECOKUBE_W_FIT", cfg.FitWeight)
 		if v := parseEnvFloat("ECOKUBE_MAX_RUNTIME", cfg.MaxRuntime); v > 0 {
 			cfg.MaxRuntime = v
 		}

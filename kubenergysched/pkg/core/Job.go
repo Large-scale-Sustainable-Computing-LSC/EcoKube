@@ -9,6 +9,7 @@ type Job struct {
 	DeadlineMs        int64
 	Tags              map[string]string
 	EstimatedDuration float64
-	Labels		   map[string]string
-	SubmitAt		   time.Time
+	Labels            map[string]string
+	SubmitAt          time.Time
+	Class             string
 }

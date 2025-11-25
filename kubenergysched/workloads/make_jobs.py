@@ -135,7 +135,7 @@ def job_from_row(row, index=None):
             )
         )
 
-    resource_class = row.get("resource_class", "").strip().lower()
+    resource_class = (row.get("class") or row.get("resource_class") or "").strip().lower()
     gpu_count = 0
     try:
         gpu_count = int(float(row.get("gpu_count", "0") or 0))

@@ -162,6 +162,7 @@ func (b *BaseSim) selectNode(w Workload) *SimulatedNode {
 			EstimatedDuration: w.Duration.Seconds(),
 			SubmitAt:          w.SubmitTime,
 			Labels:            w.Labels,
+			Class:             w.Class,
 			Tags:              nil, // fill if you route tags
 			DeadlineMs:        0,   // fill if relevant
 		}
