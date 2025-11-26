@@ -1,5 +1,6 @@
 ### 🔋 EcoKube - Scheduling Framework for Heterogeneous Multi-Cluster Research Infrastructures
 <div style="width:100%;display:flex;flex-direction:row;justify-content:center">
+  <image src="assets/hetsched.png" style="width:200px;"/>
   <image src="assets/ecokube.png" style="width:200px;"/>
 </div>
 
