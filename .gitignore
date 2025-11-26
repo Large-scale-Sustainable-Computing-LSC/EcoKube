@@ -18,6 +18,7 @@ analysis/results_k8s/**/*.csv
 analysis/results_k8s/**/*.json
 analysis/results_k8s/**/*.jsonl
 analysis/tables/**/*.tex
+analysis/animations/
 
 # analysis/
 # jupyter/*

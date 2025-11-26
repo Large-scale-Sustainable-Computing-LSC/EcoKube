@@ -583,7 +583,7 @@ def _plot_pareto(
 
     ax.set_xlabel(x_label)
     ax.set_ylabel(y_label)
-    ax.set_title(f"{backend.upper()} Pareto")
+    # Titles removed to keep plots uncluttered.
     ax.grid(alpha=0.3, linestyle=":")
     fig.canvas.draw()
     renderer = fig.canvas.get_renderer()
@@ -624,7 +624,6 @@ def _plot_latency_violin(
     )
     ax.set_xlabel("Policy")
     ax.set_ylabel("Tail latency (p95, s)")
-    ax.set_title(f"{backend.upper()} tail latency distribution")
     ax.grid(axis="y", alpha=0.3, linestyle=":")
     fig.tight_layout()
     fig.savefig(outfile, dpi=300, bbox_inches="tight")
@@ -681,7 +680,6 @@ def _plot_makespan_bars(
     )
     ax.set_xlabel("Policy")
     ax.set_ylabel("Makespan (min)")
-    ax.set_title(f"{backend.upper()} makespan (median ±95% CI)")
     ax.grid(axis="y", alpha=0.3, linestyle=":")
     fig.tight_layout()
     fig.savefig(outfile, dpi=300, bbox_inches="tight")
@@ -739,7 +737,6 @@ def _plot_site_stacked(
 
     ax.set_xlabel("Policy")
     ax.set_ylabel("Job share")
-    ax.set_title(f"{backend.upper()} site allocation share")
     ax.set_ylim(0, 1)
     ax.grid(axis="y", alpha=0.3, linestyle=":")
     ax.legend(title="Site", bbox_to_anchor=(1.02, 1), loc="upper left")

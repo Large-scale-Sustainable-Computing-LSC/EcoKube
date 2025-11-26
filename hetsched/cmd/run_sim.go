@@ -409,7 +409,13 @@ func main() {
 								return logs, elapsed
 							},
 						},
-						{
+					}
+
+					if !skipCarbonscaler {
+						specs = append(specs, struct {
+							name string
+							run  func([]core.Workload, int64, int) ([]core.LogEntry, float64)
+						}{
 							name: "carbonscaler",
 							run: func(w []core.Workload, seed int64, rep int) ([]core.LogEntry, float64) {
 								const policyID = "carbonscaler"
@@ -459,7 +465,7 @@ func main() {
 								allSummaries = append(allSummaries, s)
 								return logs, elapsed
 							},
-						},
+						})
 					}
 
 					for _, mode := range ecoModes {

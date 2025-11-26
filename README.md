@@ -1,5 +1,9 @@
 ### 🔋 EcoKube - Scheduling Framework for Heterogeneous Multi-Cluster Research Infrastructures
-EcoKube is the sustainability-aware scheduling framework for Heterogeneous RIs. The goal is to integrate heterogeneous infrastructures while optimising **sustainability** outcomes across simulation and Kubernetes replay tracks. It orchestrates the KesPolicies suite (located under `policies/`) to compare heterogeneous scheduling strategies consistently.
+<div style="width:100%;display:flex;flex-direction:row;justify-content:center">
+  <image src="assets/ecokube.png" style="width:200px;"/>
+</div>
+
+> EcoKube is the sustainability-aware scheduling framework for Heterogeneous RIs. The goal is to integrate heterogeneous infrastructures while optimising **sustainability** outcomes across simulation and Kubernetes replay tracks. It orchestrates the KesPolicies suite (located under `policies/`) to compare heterogeneous scheduling strategies consistently.
 
 ## How to use
 - **1. Prepare inputs** – Generate or update `config/nodes.csv`, `config/workloads.csv`, and `config/sites.csv` with the new workload knobs:
