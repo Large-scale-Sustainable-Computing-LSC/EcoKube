@@ -59,6 +59,20 @@ class TableResults:
     overall: pd.DataFrame
 
 
+def _normalise_policy(name: str) -> str:
+    name = str(name).strip().lower()
+    if not name:
+        return name
+    name = LEGACY_POLICY_MAP.get(name, name)
+    # Treat any EcoKube variant as the canonical name.
+    if name.startswith("ecokube"):
+        return "ecokube"
+    # Align k8/k8s casing variants.
+    if name.startswith("k8"):
+        return "k8s"
+    return name
+
+
 def _latest_results_dir(root: Path) -> Path:
     candidates = sorted(root.glob("results_*"))
     if not candidates:
@@ -70,15 +84,14 @@ def _read_summary(path: Path, policies: Iterable[str]) -> pd.DataFrame:
     if not path.exists():
         raise FileNotFoundError(path)
     df = pd.read_csv(path)
-    df["policy"] = df["policy"].str.lower()
-    df["policy"] = df["policy"].replace(LEGACY_POLICY_MAP)
+    df["policy"] = df["policy"].apply(_normalise_policy)
     df = df[df["policy"].isin(policies)].copy()
     return df
 
 
 def _compute_pareto(df: pd.DataFrame) -> pd.Series:
-    """Return boolean Series marking Pareto-efficient points for (total_ci_cost_g, makespan_s)."""
-    values = df[["total_ci_cost_g", "makespan_s"]].to_numpy()
+    """Return boolean Series marking Pareto-efficient points for (avg_ci_per_job_g, avg_wait_s)."""
+    values = df[["avg_ci_per_job_g", "avg_wait_s"]].to_numpy()
     dominated = []
     for i, point in enumerate(values):
         mask = (values[:, 0] <= point[0]) & (values[:, 1] <= point[1])
@@ -95,8 +108,7 @@ def _build_from_combined(
     policies: Iterable[str],
 ) -> TableResults:
     df = pd.read_csv(combined_path)
-    df["policy"] = df["policy"].str.lower()
-    df["policy"] = df["policy"].replace(LEGACY_POLICY_MAP)
+    df["policy"] = df["policy"].apply(_normalise_policy)
     df = df[df["policy"].isin(policies)].copy()
     df = df[df["batch_size"].isin(batches)]
     df = df[np.isclose(df["ci_weight"], ci_weight)]
@@ -107,7 +119,7 @@ def _build_from_combined(
 
     grouped = (
         df.groupby(["batch_size", "policy"], as_index=False)[
-            ["total_ci_cost_g", "avg_wait_s", "makespan_s"]
+            ["avg_ci_per_job_g", "avg_wait_s", "makespan_s"]
         ]
         .mean()
     )
@@ -119,8 +131,8 @@ def _build_from_combined(
             continue
         subset["policy_order"] = subset["policy"].map(POLICY_PRIORITY).fillna(999)
         ordered = subset.sort_values(
-            ["total_ci_cost_g", "avg_wait_s", "makespan_s", "policy_order"]
-        ).drop_duplicates(subset=["total_ci_cost_g", "avg_wait_s", "makespan_s"], keep="first")
+            ["avg_ci_per_job_g", "avg_wait_s", "makespan_s", "policy_order"]
+        ).drop_duplicates(subset=["avg_ci_per_job_g", "avg_wait_s", "makespan_s"], keep="first")
         pareto = _compute_pareto(ordered)
         pareto_map = {row["policy"]: bool(pareto.loc[row["policy"]]) for _, row in ordered.iterrows()}
         for _, row in subset.iterrows():
@@ -130,7 +142,7 @@ def _build_from_combined(
                     "Policy": label,
                     "Batch": batch,
                     "CI Weight": ci_weight,
-                    "Total CFP [gCO2e]": row["total_ci_cost_g"],
+                    "Carbon per job [gCO2e]": row["avg_ci_per_job_g"],
                     "Avg Wait [s]": row["avg_wait_s"],
                     "Makespan [s]": row["makespan_s"],
                     "Pareto Front": pareto_map.get(row["policy"], False),
@@ -143,7 +155,7 @@ def _build_from_combined(
     pareto_flags: List[bool] = []
     for batch in per_batch_df["Batch"].unique():
         mask = per_batch_df["Batch"] == batch
-        subset = per_batch_df.loc[mask, ["Total CFP [gCO2e]", "Avg Wait [s]"]].to_numpy()
+        subset = per_batch_df.loc[mask, ["Carbon per job [gCO2e]", "Avg Wait [s]"]].to_numpy()
         for i, point in enumerate(subset):
             other = np.delete(subset, i, axis=0)
             dominated = any(
@@ -156,7 +168,7 @@ def _build_from_combined(
 
     overall_df = (
         per_batch_df.groupby("Policy", as_index=False)[
-            ["Total CFP [gCO2e]", "Avg Wait [s]", "Makespan [s]"]
+            ["Carbon per job [gCO2e]", "Avg Wait [s]", "Makespan [s]"]
         ].mean()
     )
     return TableResults(per_batch=per_batch_df, overall=overall_df)
@@ -186,8 +198,8 @@ def build_sim_tables(
         df.sort_values("policy", inplace=True)
         df["policy_order"] = df["policy"].map(POLICY_PRIORITY).fillna(999)
         ordered = df.sort_values(
-            ["total_ci_cost_g", "avg_wait_s", "makespan_s", "policy_order"]
-        ).drop_duplicates(subset=["total_ci_cost_g", "avg_wait_s", "makespan_s"], keep="first")
+            ["avg_ci_per_job_g", "avg_wait_s", "makespan_s", "policy_order"]
+        ).drop_duplicates(subset=["avg_ci_per_job_g", "avg_wait_s", "makespan_s"], keep="first")
         pareto = _compute_pareto(ordered)
         pareto_map = {row["policy"]: bool(pareto.loc[row["policy"]]) for _, row in ordered.iterrows()}
         for _, row in df.iterrows():
@@ -197,7 +209,7 @@ def build_sim_tables(
                     "Policy": label,
                     "Batch": batch,
                     "CI Weight": ci_weight,
-                    "Total CFP [gCO2e]": row["total_ci_cost_g"],
+                    "Carbon per job [gCO2e]": row["avg_ci_per_job_g"],
                     "Avg Wait [s]": row["avg_wait_s"],
                     "Makespan [s]": row["makespan_s"],
                     "Pareto Front": pareto_map.get(row["policy"], False),
@@ -210,7 +222,7 @@ def build_sim_tables(
     pareto_flags: List[bool] = []
     for batch in per_batch_df["Batch"].unique():
         mask = per_batch_df["Batch"] == batch
-        subset = per_batch_df.loc[mask, ["Total CFP [gCO2e]", "Avg Wait [s]"]].to_numpy()
+        subset = per_batch_df.loc[mask, ["Carbon per job [gCO2e]", "Avg Wait [s]"]].to_numpy()
         for i, point in enumerate(subset):
             other = np.delete(subset, i, axis=0)
             dominated = any(
@@ -223,7 +235,7 @@ def build_sim_tables(
 
     overall_df = (
         per_batch_df.groupby("Policy", as_index=False)[
-            ["Total CFP [gCO2e]", "Avg Wait [s]", "Makespan [s]"]
+            ["Carbon per job [gCO2e]", "Avg Wait [s]", "Makespan [s]"]
         ]
         .mean()
     )
@@ -308,7 +320,7 @@ def main() -> None:
         "Policy",
         "Batch",
         "CI Weight",
-        "Total CFP [gCO2e]",
+        "Carbon per job [gCO2e]",
         "Avg Wait [s]",
         "Makespan [s]",
         "Pareto Front",
@@ -319,13 +331,13 @@ def main() -> None:
         caption="Simulation pathway: per-batch summary for EcoKube, TOPSIS, KEIDS, and the Kubernetes baseline.",
         label="tab:sim-per-batch",
         column_format="lcccccc",
-        float_cols=["CI Weight", "Total CFP [gCO2e]", "Avg Wait [s]", "Makespan [s]"],
+        float_cols=["CI Weight", "Carbon per job [gCO2e]", "Avg Wait [s]", "Makespan [s]"],
     )
     (args.out_dir / "sim_per_batch.tex").write_text(per_batch_tex)
 
     overall_columns = [
         "Policy",
-        "Total CFP [gCO2e]",
+        "Carbon per job [gCO2e]",
         "Avg Wait [s]",
         "Makespan [s]",
     ]
@@ -335,7 +347,7 @@ def main() -> None:
         caption="Simulation pathway: overall summary across batches.",
         label="tab:sim-overall",
         column_format="lccc",
-        float_cols=["Total CFP [gCO2e]", "Avg Wait [s]", "Makespan [s]"],
+        float_cols=["Carbon per job [gCO2e]", "Avg Wait [s]", "Makespan [s]"],
     )
     (args.out_dir / "sim_overall.tex").write_text(overall_tex)
 
