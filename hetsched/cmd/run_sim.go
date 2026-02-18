@@ -18,7 +18,6 @@ import (
 	"github.com/g-uva/EcoKube/hetsched/pkg/core"
 	"github.com/g-uva/EcoKube/hetsched/pkg/loader"
 	"github.com/g-uva/EcoKube/hetsched/pkg/metrics"
-	"github.com/g-uva/EcoKube/policies/carbonscaler"
 	"github.com/g-uva/EcoKube/policies/ecokube"
 	"github.com/g-uva/EcoKube/policies/k8sched"
 	"github.com/g-uva/EcoKube/policies/keids"
@@ -86,7 +85,6 @@ func main() {
 	var thetaPath string
 	var arrivalSeed int64
 	var hetFitWeight float64
-	var skipCarbonscaler bool
 
 	flag.StringVar(&nodesCSV, "nodes-csv", "config/nodes.csv", "path to nodes CSV")
 	flag.StringVar(&wlCSV, "wl-csv", "config/workloads.csv", "path to workloads CSV")
@@ -112,7 +110,6 @@ func main() {
 	flag.StringVar(&thetaPath, "theta-yaml", "", "optional Theta YAML to align simulator parameters with the Kubernetes controller")
 	flag.Int64Var(&arrivalSeed, "arrival-seed", 1337, "seed for synthetic arrival schedules")
 	flag.Float64Var(&hetFitWeight, "het-w-fit", 0.2, "device/accelerator fit weight (0 disables the term)")
-	flag.BoolVar(&skipCarbonscaler, "skip-carbonscaler", false, "skip CarbonScaler policy during simulator runs")
 	flag.Parse()
 
 	if outDir == "" {
@@ -233,7 +230,6 @@ func main() {
 						NodesCSV:          nodesCSV,
 						WorkloadsCSV:      wlCSV,
 						HetFitWeight:      hetFitWeight,
-						SkipCarbonscaler:  skipCarbonscaler,
 						Timestamp:         time.Now().UTC().Format(time.RFC3339),
 					})
 
@@ -406,62 +402,6 @@ func main() {
 								return logs, elapsed
 							},
 						},
-					}
-
-					if !skipCarbonscaler {
-						specs = append(specs, struct {
-							name string
-							run  func([]core.Workload, int64, int) ([]core.LogEntry, float64)
-						}{
-							name: "carbonscaler",
-							run: func(w []core.Workload, seed int64, rep int) ([]core.LogEntry, float64) {
-								const policyID = "carbonscaler"
-								lambda := carbonScalerLambda(ciW)
-								nodes := loader.LoadNodesFromCSV(nodesCSV)
-								sites := loader.LoadSitesFromCSV(sitesCSV)
-								loader.AttachSites(nodes, sites)
-
-								pol := &carbonscaler.Policy{Cfg: carbonscaler.Config{Lambda: lambda}}
-								sim := &core.BaseSim{}
-								sim.Init(nodes, pol)
-								if currentTracer != nil {
-									sim.SetTracer(currentTracer)
-								}
-								sim.SetScheduleBatchSize(bs)
-								sim.CICalc = func(n *core.SimulatedNode, w core.Workload, at time.Time) float64 {
-									return metrics.ComputeCICost(n, w, at)
-								}
-
-								workloads := scrubPreferredSite(w)
-								applyArrivalSchedule(workloads, templateStart, bs, arrivalRate, arrivalMode, burstProb, burstMultiplier, seed)
-								workloadByID := make(map[string]core.Workload, len(workloads))
-								for _, j := range workloads {
-									workloadByID[j.ID] = j
-									sim.AddWorkload(j)
-								}
-
-								start := time.Now()
-								sim.Run()
-								elapsed := float64(time.Since(start).Milliseconds())
-
-								logs := sim.Logs()
-								writePerJobCSV(comboDir, policyID, ciW, bs, target, arrivalRate, rep, logs)
-
-								s := summariseRun(policyID, ciW, bs, target, arrivalRate, warmupDuration, logs, workloadByID)
-								s.ElapsedMs = elapsed
-								s.AlphaMass = alphaMass
-								s.LookaheadMin = lookaheadMin
-								s.DurationScale = durScale
-								s.DurationOverrides = durationsFlag
-								s.Rep = rep
-								if haveTheta {
-									s.ThetaE = theta.ThetaE
-									s.ThetaC = theta.ThetaC
-								}
-								allSummaries = append(allSummaries, s)
-								return logs, elapsed
-							},
-						})
 					}
 
 					for _, mode := range ecoModes {
@@ -1027,7 +967,6 @@ type runParams struct {
 	NodesCSV          string    `json:"nodes_csv"`
 	WorkloadsCSV      string    `json:"workloads_csv"`
 	HetFitWeight      float64   `json:"het_fit_weight"`
-	SkipCarbonscaler  bool      `json:"skip_carbonscaler"`
 	Timestamp         string    `json:"timestamp"`
 }
 
