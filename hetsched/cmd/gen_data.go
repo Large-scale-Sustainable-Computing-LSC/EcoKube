@@ -114,9 +114,9 @@ func writeSitesCSV(path string) error {
 		return err
 	}
 	rows := [][]string{
-		{"site-a", "1.18", "1.00", "NL"},
-		{"site-b", "1.05", "0.95", "ON"},
-		{"site-c", "1.60", "1.10", "CA"},
+		{"NL", "1.16", "1.00", "NL"},
+		{"FR", "1.14", "0.98", "FR"},
+		{"DE", "1.20", "1.03", "DE"},
 	}
 	for _, r := range rows {
 		if err := w.Write(r); err != nil {
@@ -129,9 +129,9 @@ func writeSitesCSV(path string) error {
 func writeSitesJSON(path string) error {
 	// Minimal 3-site example aligned with controller expectations
 	data := map[string]siteJSON{
-		"A": {PUE: 1.18, K: 1.00, Region: "NL", CI: 410},
-		"B": {PUE: 1.05, K: 0.95, Region: "ON", CI: 120},
-		"C": {PUE: 1.60, K: 1.10, Region: "CA", CI: 520},
+		"NL": {PUE: 1.16, K: 1.00, Region: "NL", CI: 165},
+		"FR": {PUE: 1.14, K: 0.98, Region: "FR", CI: 85},
+		"DE": {PUE: 1.20, K: 1.03, Region: "DE", CI: 255},
 	}
 	b, err := json.MarshalIndent(data, "", "  ")
 	if err != nil {

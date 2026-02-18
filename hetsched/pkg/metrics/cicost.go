@@ -1,8 +1,13 @@
 package metrics
 
 import (
+	"encoding/csv"
 	"math"
+	"os"
+	"path/filepath"
+	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/g-uva/EcoKube/hetsched/pkg/core"
@@ -18,7 +23,19 @@ const (
 
 	minCarbonIntensityG = 0.0
 	cpuScalingGamma     = 0.8
+
+	defaultWattnetDirEnv = "WATTNET_TRACE_DIR"
 )
+
+var (
+	wattnetOnce   sync.Once
+	wattnetSeries map[string][]wattnetPoint
+)
+
+type wattnetPoint struct {
+	at time.Time
+	ci float64
+}
 
 // ComputeEnergyAndCarbon estimates the energy (in kWh) and CO₂ emissions (in kg)
 // for running workload w on node n starting at time at.
@@ -201,9 +218,121 @@ func rawCarbonIntensity(n *core.SimulatedNode, at time.Time) float64 {
 		steps := float64(at.Unix()) / stepSec
 		frac := steps - math.Floor(steps)
 		return minV + span*frac
+	case "wattnet":
+		if len(parts) < 3 {
+			return n.CarbonIntensity
+		}
+		country := strings.ToUpper(strings.TrimSpace(parts[1]))
+		year := strings.TrimSpace(parts[2])
+		if v, ok := lookupWattnetCI(country, year, at.UTC()); ok {
+			return v
+		}
+		return n.CarbonIntensity
 	default:
 		return n.CarbonIntensity
 	}
+}
+
+func lookupWattnetCI(country, year string, at time.Time) (float64, bool) {
+	loadWattnetOnce()
+	if len(wattnetSeries) == 0 {
+		return 0, false
+	}
+	key := strings.ToUpper(strings.TrimSpace(country)) + ":" + strings.TrimSpace(year)
+	series, ok := wattnetSeries[key]
+	if !ok || len(series) == 0 {
+		return 0, false
+	}
+	if at.IsZero() {
+		at = series[0].at
+	}
+	hour := at.Truncate(time.Hour)
+	i := sortSearchByTime(series, hour)
+	if i < len(series) && series[i].at.Equal(hour) {
+		return series[i].ci, true
+	}
+	if i > 0 {
+		return series[i-1].ci, true
+	}
+	return series[0].ci, true
+}
+
+func sortSearchByTime(series []wattnetPoint, target time.Time) int {
+	lo, hi := 0, len(series)
+	for lo < hi {
+		mid := lo + (hi-lo)/2
+		if series[mid].at.Before(target) {
+			lo = mid + 1
+		} else {
+			hi = mid
+		}
+	}
+	return lo
+}
+
+func loadWattnetOnce() {
+	wattnetOnce.Do(func() {
+		wattnetSeries = map[string][]wattnetPoint{}
+		traceDir := strings.TrimSpace(os.Getenv(defaultWattnetDirEnv))
+		if traceDir == "" {
+			traceDir = filepath.Join("..", "carbon_intensity_traces_wattnet")
+		}
+		entries, err := os.ReadDir(traceDir)
+		if err != nil {
+			return
+		}
+		for _, e := range entries {
+			if e.IsDir() {
+				continue
+			}
+			name := e.Name()
+			if !strings.HasSuffix(name, "_hourly.csv") {
+				continue
+			}
+			base := strings.TrimSuffix(name, "_hourly.csv")
+			parts := strings.Split(base, "_")
+			if len(parts) < 2 {
+				continue
+			}
+			year := parts[len(parts)-1]
+			country := strings.Join(parts[:len(parts)-1], "_")
+			key := strings.ToUpper(country) + ":" + year
+			series := parseWattnetCSV(filepath.Join(traceDir, name))
+			if len(series) > 0 {
+				wattnetSeries[key] = series
+			}
+		}
+	})
+}
+
+func parseWattnetCSV(path string) []wattnetPoint {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil
+	}
+	defer f.Close()
+	r := csv.NewReader(f)
+	recs, err := r.ReadAll()
+	if err != nil || len(recs) < 2 {
+		return nil
+	}
+	out := make([]wattnetPoint, 0, len(recs)-1)
+	for i := 1; i < len(recs); i++ {
+		row := recs[i]
+		if len(row) < 2 {
+			continue
+		}
+		t, err := time.Parse("2006-01-02 15:04:05", strings.TrimSpace(row[0]))
+		if err != nil {
+			continue
+		}
+		v, err := strconv.ParseFloat(strings.TrimSpace(row[1]), 64)
+		if err != nil {
+			continue
+		}
+		out = append(out, wattnetPoint{at: t.UTC(), ci: v})
+	}
+	return out
 }
 
 // EstimateCarbonIntensity returns the forecasted carbon intensity (gCO₂/kWh)

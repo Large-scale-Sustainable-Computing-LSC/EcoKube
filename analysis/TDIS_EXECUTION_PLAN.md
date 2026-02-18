@@ -46,6 +46,10 @@ All mixes use deterministic generation (`--seed`) and controlled arrivals.
 
 ## 3) Deterministic simulator sweep baseline
 
+Topology baseline (Central Europe, 3 sites): `NL`, `FR`, `DE`.
+
+Carbon traces: use 2024 WattNet hourly traces (`wattnet:<COUNTRY>:2024`) from `carbon_intensity_traces_wattnet/`.
+
 Use one fixed arrival seed and fixed repetitions in code path (already deterministic per scenario seed logic in `run_sim.go`).
 
 Recommended sweep knobs:

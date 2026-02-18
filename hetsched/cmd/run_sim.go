@@ -260,7 +260,6 @@ func main() {
 								nodes := loader.LoadNodesFromCSV(nodesCSV)
 								sites := loader.LoadSitesFromCSV(sitesCSV)
 								loader.AttachSites(nodes, sites)
-								nodes = neutraliseSites(nodes)
 
 								pol := &k8sched.Policy{}
 								sim := &core.BaseSim{}
@@ -310,7 +309,6 @@ func main() {
 								nodes := loader.LoadNodesFromCSV(nodesCSV)
 								sites := loader.LoadSitesFromCSV(sitesCSV)
 								loader.AttachSites(nodes, sites)
-								nodes = neutraliseSites(nodes)
 
 								pol := &keids.Policy{Weights: keids.DefaultWeights()}
 								sim := &core.BaseSim{}
@@ -363,7 +361,6 @@ func main() {
 								nodes := loader.LoadNodesFromCSV(nodesCSV)
 								sites := loader.LoadSitesFromCSV(sitesCSV)
 								loader.AttachSites(nodes, sites)
-								nodes = neutraliseSites(nodes)
 
 								pol := &topsis.Policy{Weights: topsis.DefaultWeights()}
 								sim := &core.BaseSim{}
@@ -423,13 +420,12 @@ func main() {
 								nodes := loader.LoadNodesFromCSV(nodesCSV)
 								sites := loader.LoadSitesFromCSV(sitesCSV)
 								loader.AttachSites(nodes, sites)
-								nodes = neutraliseSites(nodes)
 
 								pol := &carbonscaler.Policy{Cfg: carbonscaler.Config{Lambda: lambda}}
 								sim := &core.BaseSim{}
 								sim.Init(nodes, pol)
-								if tracer != nil {
-									sim.SetTracer(tracer)
+								if currentTracer != nil {
+									sim.SetTracer(currentTracer)
 								}
 								sim.SetScheduleBatchSize(bs)
 								sim.CICalc = func(n *core.SimulatedNode, w core.Workload, at time.Time) float64 {
@@ -752,26 +748,6 @@ func calibrateEcoWeights(ciWeight float64) (float64, float64, float64) {
 		timeW = 1 - carbon - energyW
 	}
 	return carbon, timeW, energyW
-}
-
-func neutraliseSites(nodes []*core.SimulatedNode) []*core.SimulatedNode {
-	out := make([]*core.SimulatedNode, len(nodes))
-	for i, n := range nodes {
-		if n == nil {
-			continue
-		}
-		copyNode := *n
-		copyNode.Site = &core.Site{
-			ID:              "neutral",
-			PUE:             1.3,
-			K:               1.0,
-			CarbonIntensity: 450.0,
-			CIRegion:        "neutral",
-		}
-		copyNode.SiteID = ""
-		out[i] = &copyNode
-	}
-	return out
 }
 
 func scrubPreferredSite(workloads []core.Workload) []core.Workload {

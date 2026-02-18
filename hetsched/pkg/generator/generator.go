@@ -77,14 +77,14 @@ func GenerateNodes(path string) error {
 	}
 
 	entries := [][]string{
-		{"site-a-small-0", "4", "16", "static:120", "A", "360", ""},
-		{"site-a-small-1", "4", "16", "static:140", "A", "360", ""},
-		{"site-b-standard-0", "8", "32", "sine:150:35:3600", "B", "420", ""},
-		{"site-b-standard-1", "8", "32", "sine:170:30:2700", "B", "420", ""},
-		{"site-b-gpu-0", "16", "64", "static:180", "B", "550", "gpu=true"},
-		{"site-c-memory-0", "12", "96", "randwalk:130:220:900", "C", "480", ""},
-		{"site-c-gpu-0", "32", "128", "randwalk:110:160:600", "C", "650", "gpu=true"},
-		{"site-c-standard-1", "12", "64", "static:160", "C", "460", ""},
+		{"nl-edge-0", "4", "16", "wattnet:NL:2024", "NL", "360", ""},
+		{"nl-edge-1", "4", "16", "wattnet:NL:2024", "NL", "360", ""},
+		{"fr-standard-0", "8", "32", "wattnet:FR:2024", "FR", "420", ""},
+		{"fr-standard-1", "8", "32", "wattnet:FR:2024", "FR", "420", ""},
+		{"fr-gpu-0", "16", "64", "wattnet:FR:2024", "FR", "550", "gpu=true"},
+		{"de-memory-0", "12", "96", "wattnet:DE:2024", "DE", "480", ""},
+		{"de-gpu-0", "32", "128", "wattnet:DE:2024", "DE", "650", "gpu=true"},
+		{"de-standard-1", "12", "64", "wattnet:DE:2024", "DE", "460", ""},
 	}
 
 	for _, row := range entries {
@@ -136,7 +136,7 @@ func GenerateWorkloads(path string, opts WorkloadOptions) error {
 	current := start
 	remaining := opts.NumJobs
 	jobIndex := 0
-	sites := []string{"A", "B", "C"}
+	sites := []string{"NL", "FR", "DE"}
 	siteIdx := 0
 
 	for remaining > 0 {
