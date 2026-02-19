@@ -5,8 +5,8 @@ import (
 	"math"
 	"time"
 
-	"github.com/g-uva/EcoKube/policies/internal/candidate"
 	"github.com/g-uva/EcoKube/hetsched/pkg/core"
+	"github.com/g-uva/EcoKube/policies/internal/candidate"
 )
 
 // Weights mirrors the thesis notation (α carbon, β runtime, γ queueing).
@@ -23,7 +23,7 @@ type Policy struct {
 }
 
 // DefaultWeights returns the calibrated α/β/γ triple from the document.
-func DefaultWeights() Weights { return Weights{Alpha: 0.45, Beta: 0.35, Gamma: 0.20} }
+func DefaultWeights() Weights { return Weights{Alpha: 0.15, Beta: 0.55, Gamma: 0.30} }
 
 // Name exposes the scheduler identifier in simulator traces.
 func (p *Policy) Name() string { return "keids" }

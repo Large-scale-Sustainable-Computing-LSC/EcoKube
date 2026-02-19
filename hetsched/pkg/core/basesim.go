@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 	"sort"
+	"strings"
 	"time"
 )
 
@@ -97,6 +98,7 @@ func (b *BaseSim) Run() {
 
 			start := b.Clock
 			work := w
+			work.Duration = adjustedDurationForNode(work, n)
 
 			var ci float64
 			if b.CICalc != nil {
@@ -190,6 +192,88 @@ func (b *BaseSim) selectNode(w Workload) *SimulatedNode {
 		}
 	}
 	return best
+}
+
+func adjustedDurationForNode(w Workload, n *SimulatedNode) time.Duration {
+	if n == nil || w.Duration <= 0 {
+		return w.Duration
+	}
+	jobClass := ""
+	if w.Class != "" {
+		jobClass = strings.ToLower(strings.TrimSpace(w.Class))
+	}
+	if jobClass == "" && w.Labels != nil {
+		if c := strings.ToLower(strings.TrimSpace(w.Labels["resource_class"])); c != "" {
+			jobClass = c
+		} else if strings.EqualFold(w.Labels["requires_gpu"], "true") {
+			jobClass = "gpu"
+		}
+	}
+	nodeClass := ""
+	if n.DeviceClass != "" {
+		nodeClass = strings.ToLower(strings.TrimSpace(n.DeviceClass))
+	}
+	if nodeClass == "" && n.Labels != nil {
+		if c := strings.ToLower(strings.TrimSpace(n.Labels["resource_class"])); c != "" {
+			nodeClass = c
+		} else if strings.EqualFold(n.Labels["gpu"], "true") {
+			nodeClass = "gpu"
+		}
+	}
+	mult := 1.0
+	if jobClass != "" && nodeClass != "" && jobClass != nodeClass {
+		switch jobClass {
+		case "memory":
+			if nodeClass == "cpu" {
+				mult = 3.2
+			} else if nodeClass == "gpu" {
+				mult = 2.4
+			} else {
+				mult = 2.2
+			}
+		case "gpu":
+			if nodeClass == "cpu" || nodeClass == "memory" {
+				mult = 2.9
+			} else {
+				mult = 2.2
+			}
+		case "cpu":
+			if nodeClass == "gpu" {
+				mult = 1.45
+			} else if nodeClass == "memory" {
+				mult = 1.25
+			}
+		default:
+			mult = 1.5
+		}
+	}
+	if w.Labels != nil {
+		preferred := strings.TrimSpace(w.Labels["preferred_site"])
+		if preferred != "" {
+			nodeSite := ""
+			if n.Site != nil {
+				nodeSite = n.Site.ID
+			}
+			if nodeSite == "" {
+				nodeSite = n.SiteID
+			}
+			if nodeSite != "" && !strings.EqualFold(nodeSite, preferred) {
+				switch jobClass {
+				case "memory":
+					mult *= 1.8
+				case "gpu":
+					mult *= 1.4
+				default:
+					mult *= 1.2
+				}
+			}
+		}
+	}
+	adjusted := time.Duration(float64(w.Duration) * mult)
+	if adjusted < time.Second {
+		adjusted = time.Second
+	}
+	return adjusted
 }
 
 func (b *BaseSim) recordDecisionTrace(job Job, nodes []SimulatedNode, scores Scores, selected string) {

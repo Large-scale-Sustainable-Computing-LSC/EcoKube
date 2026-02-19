@@ -137,8 +137,8 @@ func GenerateWorkloads(path string, opts WorkloadOptions) error {
 	remaining := opts.NumJobs
 	jobIndex := 0
 	cpuSites := []string{"FR", "NL", "FR"}
-	gpuSites := []string{"FR", "DE", "FR"}
-	memorySites := []string{"FR", "NL", "FR"}
+	gpuSites := []string{"DE", "DE", "FR"}
+	memorySites := []string{"DE", "DE", "FR"}
 	cpuIdx := 0
 	gpuIdx := 0
 	memoryIdx := 0

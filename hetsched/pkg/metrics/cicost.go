@@ -104,9 +104,6 @@ func ComputeEnergyAndCarbon(n *core.SimulatedNode, w core.Workload, at time.Time
 		}
 	}
 
-	energyKWh *= classEfficiencyFactor(w, n)
-	energyKWh *= dataMovementFactor(w, n)
-
 	pue := 1.0
 	if n.Site != nil && n.Site.PUE > 0 {
 		pue = n.Site.PUE
@@ -326,92 +323,6 @@ func EstimateCarbonIntensity(n *core.SimulatedNode, at time.Time) float64 {
 		return 0
 	}
 	return currentCI(n, at)
-}
-
-func classEfficiencyFactor(w core.Workload, n *core.SimulatedNode) float64 {
-	if n == nil {
-		return 1.0
-	}
-	jobClass := workloadClass(w)
-	nodeClass := nodeResourceClass(n)
-	if jobClass == "" || nodeClass == "" {
-		return 1.0
-	}
-	if jobClass == nodeClass {
-		if jobClass == "gpu" || jobClass == "memory" {
-			return 0.90
-		}
-		return 1.0
-	}
-	switch jobClass {
-	case "memory":
-		if nodeClass == "cpu" {
-			return 1.45
-		}
-		if nodeClass == "gpu" {
-			return 1.25
-		}
-	case "cpu":
-		if nodeClass == "memory" {
-			return 1.10
-		}
-		if nodeClass == "gpu" {
-			return 1.20
-		}
-	}
-	return 1.15
-}
-
-func workloadClass(w core.Workload) string {
-	if c := strings.ToLower(strings.TrimSpace(w.Class)); c != "" {
-		return c
-	}
-	if w.Labels != nil {
-		if c := strings.ToLower(strings.TrimSpace(w.Labels["resource_class"])); c != "" {
-			return c
-		}
-		if strings.EqualFold(w.Labels["requires_gpu"], "true") {
-			return "gpu"
-		}
-	}
-	return ""
-}
-
-func nodeResourceClass(n *core.SimulatedNode) string {
-	if n == nil {
-		return ""
-	}
-	if c := strings.ToLower(strings.TrimSpace(n.DeviceClass)); c != "" {
-		return c
-	}
-	if n.Labels != nil {
-		if c := strings.ToLower(strings.TrimSpace(n.Labels["resource_class"])); c != "" {
-			return c
-		}
-		if strings.EqualFold(n.Labels["gpu"], "true") {
-			return "gpu"
-		}
-	}
-	return ""
-}
-
-func dataMovementFactor(w core.Workload, n *core.SimulatedNode) float64 {
-	if n == nil || w.Labels == nil {
-		return 1.0
-	}
-	preferred := strings.TrimSpace(w.Labels["preferred_site"])
-	if preferred == "" || n.Site == nil || n.Site.ID == "" || strings.EqualFold(n.Site.ID, preferred) {
-		return 1.0
-	}
-	jobClass := workloadClass(w)
-	switch jobClass {
-	case "memory":
-		return 1.55
-	case "gpu":
-		return 1.25
-	default:
-		return 1.15
-	}
 }
 
 func clampCI(ci float64) float64 {

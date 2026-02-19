@@ -5,8 +5,8 @@ import (
 	"math"
 	"time"
 
-	"github.com/g-uva/EcoKube/policies/internal/candidate"
 	"github.com/g-uva/EcoKube/hetsched/pkg/core"
+	"github.com/g-uva/EcoKube/policies/internal/candidate"
 )
 
 // Weights matches the α/β/γ notation for carbon, runtime, and queueing.
@@ -23,7 +23,7 @@ type Policy struct {
 }
 
 // DefaultWeights returns the calibrated triple used throughout the thesis.
-func DefaultWeights() Weights { return Weights{Alpha: 0.58, Beta: 0.21, Gamma: 0.21} }
+func DefaultWeights() Weights { return Weights{Alpha: 0.12, Beta: 0.44, Gamma: 0.44} }
 
 // Name exposes the scheduler identifier to the simulator harness.
 func (p *Policy) Name() string { return "topsis" }
