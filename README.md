@@ -7,7 +7,7 @@
 > EcoKube is the sustainability-aware scheduling framework for Heterogeneous RIs. The goal is to integrate heterogeneous infrastructures while optimising **sustainability** outcomes across simulation and Kubernetes replay tracks. It orchestrates the KesPolicies suite (located under `policies/`) to compare heterogeneous scheduling strategies consistently.
 
 # TDIS 26
-Additional information
+Complementary information for the experiment realised for the paper submitted for TDIS'26.
 
 ## TDIS 26 
 | Preset  | Description (workload dynamics and heterogeneity)                                                                                                                       |
