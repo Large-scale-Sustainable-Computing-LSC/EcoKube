@@ -30,6 +30,14 @@ Complementary information for the experiment realised for the paper submitted fo
 | \newPolicyName weights (default) | α = 0.58, β = 0.21, γ = 0.21, w_fit = 0.2 |
 | Repetitions per scenario         | 50                                        |
 
+## Total CI cost (results)
+| policy | mean_total_ci_cost_g | mean_total_ci_cost_kg | mean_avg_ci_per_job_g | mean_makespan_s | mean_avg_wait_s | mean_completed_jobs |
+| --- | --- | --- | --- | --- | --- | --- |
+| ecokube | 17630.265531 | 17.630266 | 6.626689 | 342600.000 | 20749.457 | 848.000 |
+| topsis | 32120.233784 | 32.120234 | 15.165031 | 338259.000 | 21298.243 | 849.000 |
+| keids | 32121.913602 | 32.121914 | 15.631273 | 338329.000 | 21747.867 | 842.000 |
+| k8s | 32140.942020 | 32.140942 | 15.399887 | 338017.000 | 20758.190 | 848.000 |
+
 
 ## How to use
 - **1. Prepare inputs** – Generate or update `config/nodes.csv`, `config/workloads.csv`, and `config/sites.csv` with the new workload knobs:
