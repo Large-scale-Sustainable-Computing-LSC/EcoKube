@@ -6,6 +6,31 @@
 
 > EcoKube is the sustainability-aware scheduling framework for Heterogeneous RIs. The goal is to integrate heterogeneous infrastructures while optimising **sustainability** outcomes across simulation and Kubernetes replay tracks. It orchestrates the KesPolicies suite (located under `policies/`) to compare heterogeneous scheduling strategies consistently.
 
+# TDIS 26
+Additional information
+
+## TDIS 26 
+| Preset  | Description (workload dynamics and heterogeneity)                                                                                                                       |
+| ------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `mix-a` | Steady sensing: near-stationary arrivals; primarily CPU-centric tasks; intended to represent stable edge monitoring pipelines.                                          |
+| `mix-b` | Bursty edge events: burst probability 0.25 and burst multiplier 2.5; GPU share 0.12; intended to represent event-driven workloads with intermittent accelerator demand. |
+| `mix-c` | Heterogeneous CPU/GPU mix: higher variance in resource requirements and device affinity; intended to stress feasibility filtering and device-fit decisions.             |
+
+
+## TDIS 26 Experiment Parameters
+| Parameter / control              | Values                                    |
+| -------------------------------- | ----------------------------------------- |
+| Input generation seed            | `20260214`                                |
+| Base jobs per campaign           | 900                                       |
+| Arrival mode                     | Bursty (p = 0.25, multiplier 2.5)         |
+| Warm-up window                   | 30 minutes                                |
+| Batch size                       | {200, 500, 900}                           |
+| Arrival rate                     | {0.8, 1.1} (subset reported)              |
+| Carbon weight (`ci_weight`, θ_c) | {0.2, 0.4, 0.6, 0.8}                      |
+| \newPolicyName weights (default) | α = 0.58, β = 0.21, γ = 0.21, w_fit = 0.2 |
+| Repetitions per scenario         | 50                                        |
+
+
 ## How to use
 - **1. Prepare inputs** – Generate or update `config/nodes.csv`, `config/workloads.csv`, and `config/sites.csv` with the new workload knobs:
   ```bash
