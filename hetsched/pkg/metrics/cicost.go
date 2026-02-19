@@ -122,14 +122,6 @@ func ComputeEnergyAndCarbon(n *core.SimulatedNode, w core.Workload, at time.Time
 
 	carbonKg = energyKWh * pue * (ci / 1000.0)
 
-	if w.Labels != nil {
-		if preferred := w.Labels["preferred_site"]; preferred != "" {
-			if n.Site != nil && n.Site.ID != "" && n.Site.ID != preferred {
-				carbonKg *= 1.25
-			}
-		}
-	}
-
 	return energyKWh, carbonKg
 }
 

@@ -37,3 +37,4 @@ share/
 
 settings.json
 temp-commands.sh
+pyvenv.cfg
