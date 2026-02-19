@@ -434,7 +434,7 @@ func main() {
 
 									sim := &core.BaseSim{}
 									cfg := ecokube.DefaultConfig()
-									cfg.Delta = 0.0
+									cfg.Delta = 0.25
 									cfg.Alpha = weightCfg.Alpha
 									cfg.Beta = weightCfg.Beta
 									cfg.Gamma = weightCfg.Gamma
@@ -679,11 +679,10 @@ func carbonScalerLambda(ciWeight float64) float64 {
 }
 
 func calibrateEcoWeights(ciWeight float64) (float64, float64, float64) {
-	// Carbon-first while preserving heterogeneity/queue terms.
-	// Energy receives the residual coefficient inside EcoKube scoring.
-	carbon := clampFloat(0.50+0.20*ciWeight, 0.50, 0.70)
-	timeW := 0.22
-	queueW := 0.12
+	// Strongly carbon-first: in high-spread regimes this should exploit clean-site windows.
+	carbon := clampFloat(0.70+0.15*ciWeight, 0.70, 0.85)
+	timeW := 0.18
+	queueW := 0.08
 	return carbon, timeW, queueW
 }
 
