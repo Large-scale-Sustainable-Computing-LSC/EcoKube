@@ -104,17 +104,6 @@ func ComputeEnergyAndCarbon(n *core.SimulatedNode, w core.Workload, at time.Time
 		}
 	}
 
-	if ci > 0 {
-		scale := ci / defaultCarbonIntG
-		if scale < 0.25 {
-			scale = 0.25
-		}
-		if scale > 1.2 {
-			scale = 1.2
-		}
-		energyKWh *= scale
-	}
-
 	pue := 1.0
 	if n.Site != nil && n.Site.PUE > 0 {
 		pue = n.Site.PUE

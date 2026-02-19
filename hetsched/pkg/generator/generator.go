@@ -77,14 +77,14 @@ func GenerateNodes(path string) error {
 	}
 
 	entries := [][]string{
-		{"nl-edge-0", "4", "16", "wattnet:NL:2024", "NL", "360", ""},
-		{"nl-edge-1", "4", "16", "wattnet:NL:2024", "NL", "360", ""},
-		{"fr-standard-0", "8", "32", "wattnet:FR:2024", "FR", "420", ""},
-		{"fr-standard-1", "8", "32", "wattnet:FR:2024", "FR", "420", ""},
-		{"fr-gpu-0", "16", "64", "wattnet:FR:2024", "FR", "550", "gpu=true"},
-		{"de-memory-0", "12", "96", "wattnet:DE:2024", "DE", "480", ""},
-		{"de-gpu-0", "32", "128", "wattnet:DE:2024", "DE", "650", "gpu=true"},
-		{"de-standard-1", "12", "64", "wattnet:DE:2024", "DE", "460", ""},
+		{"nl-edge-0", "4", "16", "wattnet:NL:2024", "NL", "300", "resource_class=cpu,node_type=edge-cpu"},
+		{"nl-edge-1", "4", "16", "wattnet:NL:2024", "NL", "300", "resource_class=cpu,node_type=edge-cpu"},
+		{"fr-standard-0", "8", "32", "wattnet:FR:2024", "FR", "380", "resource_class=cpu,node_type=balanced-cpu"},
+		{"fr-standard-1", "8", "32", "wattnet:FR:2024", "FR", "380", "resource_class=cpu,node_type=balanced-cpu"},
+		{"fr-gpu-0", "16", "64", "wattnet:FR:2024", "FR", "500", "gpu=true,resource_class=gpu,node_type=gpu"},
+		{"de-memory-0", "12", "96", "wattnet:DE:2024", "DE", "430", "resource_class=memory,node_type=memory"},
+		{"de-gpu-0", "32", "128", "wattnet:DE:2024", "DE", "620", "gpu=true,resource_class=gpu,node_type=gpu"},
+		{"de-standard-1", "12", "64", "wattnet:DE:2024", "DE", "420", "resource_class=memory,node_type=memory"},
 	}
 
 	for _, row := range entries {
@@ -136,8 +136,12 @@ func GenerateWorkloads(path string, opts WorkloadOptions) error {
 	current := start
 	remaining := opts.NumJobs
 	jobIndex := 0
-	sites := []string{"NL", "FR", "DE"}
-	siteIdx := 0
+	cpuSites := []string{"NL", "FR", "NL"}
+	gpuSites := []string{"FR", "DE", "FR"}
+	memorySites := []string{"DE", "FR", "DE"}
+	cpuIdx := 0
+	gpuIdx := 0
+	memoryIdx := 0
 
 	for remaining > 0 {
 		wave := minInt(opts.BatchSize, remaining)
@@ -151,8 +155,18 @@ func GenerateWorkloads(path string, opts WorkloadOptions) error {
 			}
 
 			tag := resourceClassTag(resourceClass)
-			preferredSite := sites[siteIdx%len(sites)]
-			siteIdx++
+			preferredSite := "FR"
+			switch resourceClass {
+			case "gpu":
+				preferredSite = gpuSites[gpuIdx%len(gpuSites)]
+				gpuIdx++
+			case "memory":
+				preferredSite = memorySites[memoryIdx%len(memorySites)]
+				memoryIdx++
+			default:
+				preferredSite = cpuSites[cpuIdx%len(cpuSites)]
+				cpuIdx++
+			}
 
 			record := []string{
 				jobID,

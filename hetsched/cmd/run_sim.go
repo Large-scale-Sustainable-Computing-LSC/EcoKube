@@ -109,7 +109,7 @@ func main() {
 	flag.Float64Var(&warmupMin, "warmup-min", 0, "warm-up window in minutes excluded from metrics (simulation only)")
 	flag.StringVar(&thetaPath, "theta-yaml", "", "optional Theta YAML to align simulator parameters with the Kubernetes controller")
 	flag.Int64Var(&arrivalSeed, "arrival-seed", 1337, "seed for synthetic arrival schedules")
-	flag.Float64Var(&hetFitWeight, "het-w-fit", 0.2, "device/accelerator fit weight (0 disables the term)")
+	flag.Float64Var(&hetFitWeight, "het-w-fit", 0.35, "device/accelerator fit weight (0 disables the term)")
 	flag.Parse()
 
 	if outDir == "" {
@@ -268,7 +268,7 @@ func main() {
 									return metrics.ComputeCICost(n, w, at)
 								}
 
-								workloads := scrubPreferredSite(w)
+								workloads := w
 								applyArrivalSchedule(workloads, templateStart, bs, arrivalRate, arrivalMode, burstProb, burstMultiplier, seed)
 								workloadByID := make(map[string]core.Workload, len(workloads))
 								for _, j := range workloads {
@@ -317,7 +317,7 @@ func main() {
 									return metrics.ComputeCICost(n, w, at)
 								}
 
-								workloads := scrubPreferredSite(w)
+								workloads := w
 								applyArrivalSchedule(workloads, templateStart, bs, arrivalRate, arrivalMode, burstProb, burstMultiplier, seed)
 								workloadByID := make(map[string]core.Workload, len(workloads))
 								for _, j := range workloads {
@@ -369,7 +369,7 @@ func main() {
 									return metrics.ComputeCICost(n, w, at)
 								}
 
-								workloads := scrubPreferredSite(w)
+								workloads := w
 								applyArrivalSchedule(workloads, templateStart, bs, arrivalRate, arrivalMode, burstProb, burstMultiplier, seed)
 								workloadByID := make(map[string]core.Workload, len(workloads))
 								for _, j := range workloads {
@@ -679,15 +679,12 @@ func carbonScalerLambda(ciWeight float64) float64 {
 }
 
 func calibrateEcoWeights(ciWeight float64) (float64, float64, float64) {
-	// Bias EcoKube toward heterogeneity-aware runtime while keeping a carbon guard.
-	carbon := clampFloat(0.25+0.05*(0.4-ciWeight), 0.22, 0.30)
-	timeW := 0.40
-	energyW := 1 - carbon - timeW
-	if energyW < 0.25 {
-		energyW = 0.25
-		timeW = 1 - carbon - energyW
-	}
-	return carbon, timeW, energyW
+	// Carbon-first while preserving heterogeneity/queue terms.
+	// Energy receives the residual coefficient inside EcoKube scoring.
+	carbon := clampFloat(0.50+0.20*ciWeight, 0.50, 0.70)
+	timeW := 0.22
+	queueW := 0.12
+	return carbon, timeW, queueW
 }
 
 func scrubPreferredSite(workloads []core.Workload) []core.Workload {

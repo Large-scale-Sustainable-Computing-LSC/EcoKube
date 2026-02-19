@@ -28,10 +28,7 @@ const (
 	maxFitBonusFraction       = 0.10
 	interferencePenaltyFactor = 1.8
 	noiseAmplifier            = 1.2
-	minGuardSlack             = 0.008
-	queueGuardRelax           = 0.08
 	energyGuardFraction       = 0.15
-	energyWeight              = 0.32
 )
 
 // Config gathers weights and optional thresholds for the composite score.
@@ -205,63 +202,15 @@ func computeCandidateMetrics(job core.Job, nodes []core.SimulatedNode, now time.
 
 func (p *Policy) scoreWeighted(items []candidateMetrics) core.Scores {
 	scores := core.Scores{}
-	minCarbon := math.Inf(1)
-	minEnergy := math.Inf(1)
+	energyCoeff := 1 - (p.Cfg.Alpha + p.Cfg.Beta + p.Cfg.Gamma)
+	if energyCoeff < 0 {
+		energyCoeff = 0
+	}
 	for _, it := range items {
 		if !it.feasible {
 			continue
 		}
-		if it.co2 < minCarbon {
-			minCarbon = it.co2
-		}
-		if it.energy < minEnergy {
-			minEnergy = it.energy
-		}
-	}
-	if math.IsInf(minCarbon, 1) {
-		scores[""] = math.Inf(1)
-		return scores
-	}
-	alphaClamp := clamp(p.Cfg.Alpha, 0, 1)
-	slack := minGuardSlack + (1-alphaClamp)*0.03
-	for _, it := range items {
-		if !it.feasible {
-			continue
-		}
-		queueHat := clamp(it.queueHat, 0, 1)
-		carbonPenalty := it.co2Hat
-		carbonPenalty *= 1 + 0.08*queueHat
-		energyPenalty := it.energyHat
-		energyPenalty *= 1 + 0.04*queueHat
-
 		fitHat := clamp(it.fitHat, 0, 1)
-
-		queueRelax := queueGuardRelax * queueHat
-		allowed := minCarbon * (1 + math.Min(carbonGuardFraction, slack+queueRelax))
-		guarded := minCarbon * (1 + carbonGuardFraction)
-		if it.co2 > guarded {
-			scores[it.id] = math.Inf(1)
-			continue
-		}
-		if !math.IsInf(minEnergy, 1) {
-			energyAllowed := minEnergy * (1 + energyGuardFraction)
-			if it.energy > energyAllowed {
-				scores[it.id] = math.Inf(1)
-				continue
-			}
-		}
-		if it.co2 > allowed {
-			overshoot := (it.co2 - allowed) / allowed
-			if overshoot < 0 {
-				overshoot = 0
-			}
-			bump := (0.3 + 0.5*alphaClamp) * (1 + overshoot)
-			carbonPenalty += bump
-		}
-		queueTerm := queueHat
-		if queueTerm > 0 {
-			queueTerm = math.Pow(queueTerm, 0.7)
-		}
 		fitPenalty := 0.0
 		if p.Cfg.FitWeight > 0 {
 			fitPenalty = 1 - fitHat
@@ -269,10 +218,10 @@ func (p *Policy) scoreWeighted(items []candidateMetrics) core.Scores {
 				fitPenalty = 0
 			}
 		}
-		score := p.Cfg.Alpha*carbonPenalty +
-			energyWeight*energyPenalty +
+		score := p.Cfg.Alpha*it.co2Hat +
+			energyCoeff*it.energyHat +
 			p.Cfg.Beta*it.runtimeHat +
-			p.Cfg.Gamma*queueTerm +
+			p.Cfg.Gamma*it.queueHat +
 			p.Cfg.Delta*it.moveHat +
 			p.Cfg.FitWeight*fitPenalty
 		scores[it.id] = score
