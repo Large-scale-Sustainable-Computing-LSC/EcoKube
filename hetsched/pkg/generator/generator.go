@@ -77,14 +77,14 @@ func GenerateNodes(path string) error {
 	}
 
 	entries := [][]string{
-		{"nl-edge-0", "4", "16", "static:420", "NL", "300", "resource_class=cpu,node_type=edge-cpu"},
-		{"nl-edge-1", "4", "16", "static:420", "NL", "300", "resource_class=cpu,node_type=edge-cpu"},
-		{"fr-standard-0", "8", "32", "static:70", "FR", "360", "resource_class=cpu,node_type=balanced-cpu"},
-		{"fr-standard-1", "8", "32", "static:70", "FR", "360", "resource_class=cpu,node_type=balanced-cpu"},
-		{"fr-gpu-0", "16", "64", "static:70", "FR", "470", "gpu=true,resource_class=gpu,node_type=gpu"},
-		{"de-memory-0", "12", "96", "static:620", "DE", "460", "resource_class=memory,node_type=memory"},
-		{"de-gpu-0", "32", "128", "static:620", "DE", "650", "gpu=true,resource_class=gpu,node_type=gpu"},
-		{"de-standard-1", "12", "64", "static:620", "DE", "440", "resource_class=memory,node_type=memory"},
+		{"nl-edge-0", "4", "16", "wattnet:NL:2024", "NL", "300", "resource_class=cpu,node_type=edge-cpu"},
+		{"nl-edge-1", "4", "16", "wattnet:NL:2024", "NL", "300", "resource_class=cpu,node_type=edge-cpu"},
+		{"fr-standard-0", "8", "32", "wattnet:FR:2024", "FR", "380", "resource_class=cpu,node_type=balanced-cpu"},
+		{"fr-standard-1", "8", "32", "wattnet:FR:2024", "FR", "380", "resource_class=cpu,node_type=balanced-cpu"},
+		{"fr-gpu-0", "16", "64", "wattnet:FR:2024", "FR", "500", "gpu=true,resource_class=gpu,node_type=gpu"},
+		{"de-memory-0", "12", "96", "wattnet:DE:2024", "DE", "430", "resource_class=memory,node_type=memory"},
+		{"de-gpu-0", "32", "128", "wattnet:DE:2024", "DE", "620", "gpu=true,resource_class=gpu,node_type=gpu"},
+		{"de-standard-1", "12", "64", "wattnet:DE:2024", "DE", "420", "resource_class=memory,node_type=memory"},
 	}
 
 	for _, row := range entries {
@@ -136,9 +136,9 @@ func GenerateWorkloads(path string, opts WorkloadOptions) error {
 	current := start
 	remaining := opts.NumJobs
 	jobIndex := 0
-	cpuSites := []string{"FR", "NL", "FR"}
-	gpuSites := []string{"DE", "DE", "FR"}
-	memorySites := []string{"DE", "DE", "FR"}
+	cpuSites := []string{"FR", "FR", "NL", "FR"}
+	gpuSites := []string{"FR", "FR", "NL", "FR"}
+	memorySites := []string{"FR", "FR", "NL", "FR"}
 	cpuIdx := 0
 	gpuIdx := 0
 	memoryIdx := 0

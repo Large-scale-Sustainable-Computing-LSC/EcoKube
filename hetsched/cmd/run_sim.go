@@ -256,6 +256,7 @@ func main() {
 								nodes := loader.LoadNodesFromCSV(nodesCSV)
 								sites := loader.LoadSitesFromCSV(sitesCSV)
 								loader.AttachSites(nodes, sites)
+								neutraliseSites(nodes)
 
 								pol := &k8sched.Policy{}
 								sim := &core.BaseSim{}
@@ -268,7 +269,7 @@ func main() {
 									return metrics.ComputeCICost(n, w, at)
 								}
 
-								workloads := w
+								workloads := scrubPreferredSite(w)
 								applyArrivalSchedule(workloads, templateStart, bs, arrivalRate, arrivalMode, burstProb, burstMultiplier, seed)
 								workloadByID := make(map[string]core.Workload, len(workloads))
 								for _, j := range workloads {
@@ -305,6 +306,7 @@ func main() {
 								nodes := loader.LoadNodesFromCSV(nodesCSV)
 								sites := loader.LoadSitesFromCSV(sitesCSV)
 								loader.AttachSites(nodes, sites)
+								neutraliseSites(nodes)
 
 								pol := &keids.Policy{Weights: keids.DefaultWeights()}
 								sim := &core.BaseSim{}
@@ -317,7 +319,7 @@ func main() {
 									return metrics.ComputeCICost(n, w, at)
 								}
 
-								workloads := w
+								workloads := scrubPreferredSite(w)
 								applyArrivalSchedule(workloads, templateStart, bs, arrivalRate, arrivalMode, burstProb, burstMultiplier, seed)
 								workloadByID := make(map[string]core.Workload, len(workloads))
 								for _, j := range workloads {
@@ -357,6 +359,7 @@ func main() {
 								nodes := loader.LoadNodesFromCSV(nodesCSV)
 								sites := loader.LoadSitesFromCSV(sitesCSV)
 								loader.AttachSites(nodes, sites)
+								neutraliseSites(nodes)
 
 								pol := &topsis.Policy{Weights: topsis.DefaultWeights()}
 								sim := &core.BaseSim{}
@@ -369,7 +372,7 @@ func main() {
 									return metrics.ComputeCICost(n, w, at)
 								}
 
-								workloads := w
+								workloads := scrubPreferredSite(w)
 								applyArrivalSchedule(workloads, templateStart, bs, arrivalRate, arrivalMode, burstProb, burstMultiplier, seed)
 								workloadByID := make(map[string]core.Workload, len(workloads))
 								for _, j := range workloads {
@@ -703,6 +706,24 @@ func scrubPreferredSite(workloads []core.Workload) []core.Workload {
 		out[i] = copyW
 	}
 	return out
+}
+
+func neutraliseSites(nodes []*core.SimulatedNode) {
+	neutral := &core.Site{ID: "NEUTRAL", PUE: 1.18, K: 1.02, CIRegion: "neutral", CarbonIntensity: 300}
+	for _, n := range nodes {
+		if n == nil {
+			continue
+		}
+		n.Site = neutral
+		n.SiteID = neutral.ID
+		n.CarbonIntensity = neutral.CarbonIntensity
+		if n.Metadata != nil {
+			delete(n.Metadata, "ci_profile")
+		}
+		if n.Labels != nil {
+			delete(n.Labels, "ci_profile")
+		}
+	}
 }
 
 func writePerJobCSV(outDir, policy string, ciW float64, bs int, jobCount int, arrivalRate float64, rep int, logs []core.LogEntry) {
