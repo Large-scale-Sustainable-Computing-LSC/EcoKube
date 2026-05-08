@@ -1,0 +1,4 @@
+policy,carbon_proxy_delta_pct_vs_k8s,makespan_delta_pct_vs_k8s,avg_wait_delta_pct_vs_k8s
+ecokube,-45.15,+1.36,-0.04
+topsis,-0.06,+0.07,+2.60
+keids,-0.06,+0.09,+4.77
