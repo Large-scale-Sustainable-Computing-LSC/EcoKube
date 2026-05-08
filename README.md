@@ -4,7 +4,17 @@
   <image src="assets/ecokube.png" style="width:200px;"/>
 </div>
 
+**Link to EcoKube paper (TDIS 2026): https://dl.acm.org/doi/10.1145/3802513.3803486**
+
 > EcoKube is the sustainability-aware scheduling framework for Heterogeneous RIs. The goal is to integrate heterogeneous infrastructures while optimising **sustainability** outcomes across simulation and Kubernetes replay tracks. It orchestrates the KesPolicies suite (located under `policies/`) to compare heterogeneous scheduling strategies consistently.
+
+*This work is funded from the European Union’s Horizon Europe research and innovation programme through the [GreenDIGIT project](https://greendigit-project.eu/), under the grant agreement No. [101131207](https://cordis.europa.eu/project/id/101131207)*.
+
+<div style="display:flex;align-items:center;width:100%;">
+  <img src="static/EN-Funded-by-the-EU-POS-2.png" alt="EU Logo" width="250px">
+  <img src="static/cropped-GD_logo.png" alt="GreenDIGIT Logo" width="110px" style="margin-right:100px">
+</div>
+
 
 # Citation
 ```bibtex
