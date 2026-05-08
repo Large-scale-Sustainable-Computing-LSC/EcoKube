@@ -6,10 +6,31 @@
 
 > EcoKube is the sustainability-aware scheduling framework for Heterogeneous RIs. The goal is to integrate heterogeneous infrastructures while optimising **sustainability** outcomes across simulation and Kubernetes replay tracks. It orchestrates the KesPolicies suite (located under `policies/`) to compare heterogeneous scheduling strategies consistently.
 
-# TDIS 26
-Complementary information for the experiment realised for the paper submitted for TDIS'26.
+# Citation
+```bibtex
+@inproceedings{ferreira2026ecokube,
+  title     = {{EcoKube}: Simulating Carbon-Aware Scheduling Policies in Heterogeneous Edge-Cloud Environments},
+  author    = {Ferreira, Gon{\c{c}}alo and Ilager, Shashikant},
+  year      = {2026},
+  booktitle = {Proceedings of the 4th International Workshop on Testing Distributed Internet of Things Systems},
+  series    = {TDIS '26},
+  pages     = {7--12},
+  numpages  = {6},
+  publisher = {Association for Computing Machinery},
+  address   = {New York, NY, USA},
+  isbn      = {979-8-4007-2608-8},
+  doi       = {10.1145/3802513.3803486},
+  url       = {https://doi.org/10.1145/3802513.3803486}
+}
+```
 
-## TDIS 26 
+# Introduction
+Energy demand from cloud and edge computing is rising rapidly, with AI workloads further intensifying electricity use and associated carbon emissions. 
+In hybrid edge--cloud settings, sustainability impact depends on time- and location-varying grid Carbon Intensity (CI), site Power Usage Effectiveness (PUE), and heterogeneous hardware characteristics. Existing carbon-aware work explores solutions such as temporal elasticity, spatio-temporal workload shifting, and carbon-aware placement across distributed sites. However, these solutions do not provide a consistent and reproducible workflow for evaluating sustainability-aware scheduling policies on heterogeneous, federated edge--cloud topologies. We present **EcoKube**: a configurable simulation framework for the reproducible evaluation of sustainability-aware scheduling policies in heterogeneous edge--cloud environments. The framework includes an event-driven deterministic simulator, policy hooks, and a heterogeneity-aware reference policy. We evaluate the framework with synthetic batch workloads, comparing the reference policy against the default Kubernetes scheduler, KEIDS, and TOPSIS/KCSS. The contribution is architectural and experimental: **EcoKube** provides a reproducible way to compare sustainability-aware policies before deployment.
+
+# Experiment
+## Workload mix
+
 | Preset  | Description (workload dynamics and heterogeneity)                                                                                                                       |
 | ------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `mix-a` | Steady sensing: near-stationary arrivals; primarily CPU-centric tasks; intended to represent stable edge monitoring pipelines.                                          |
@@ -17,7 +38,7 @@ Complementary information for the experiment realised for the paper submitted fo
 | `mix-c` | Heterogeneous CPU/GPU mix: higher variance in resource requirements and device affinity; intended to stress feasibility filtering and device-fit decisions.             |
 
 
-## TDIS 26 Experiment Parameters
+## Experiment Parameters
 | Parameter / control              | Values                                    |
 | -------------------------------- | ----------------------------------------- |
 | Input generation seed            | `20260214`                                |
